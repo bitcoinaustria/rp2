@@ -60,7 +60,7 @@ class GlobalAllocator:
                 balance += (
                     input_data.in_transaction_2_actual_amount[in_transaction]
                     if in_transaction in input_data.in_transaction_2_actual_amount
-                    else in_transaction.crypto_in + in_transaction.crypto_fee
+                    else in_transaction.crypto_in
                 )
             self.__account_to_available_balance[account] = balance
         self.__wallet_2_per_wallet_input_data = wallet_2_per_wallet_input_data

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import date
 from typing import Dict, List, Optional
 
 from rp2.abstract_accounting_method import (
@@ -20,7 +19,7 @@ from rp2.abstract_accounting_method import (
     AbstractAcquiredLotCandidates,
     AcquiredLotAndAmount,
 )
-from rp2.configuration import Configuration
+from rp2.configuration import MAX_DATE, MIN_DATE, Configuration
 from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
@@ -32,7 +31,7 @@ from rp2.transaction_set import TransactionSet
 
 # Utility class to store the transactions of a single wallet during transfer analysis and other per-wallet processing.
 class PerWalletTransactions:
-    def __init__(self, configuration: Configuration, asset: str, transfer_semantics: AbstractAccountingMethod, from_date: date, to_date: date):
+    def __init__(self, configuration: Configuration, asset: str, transfer_semantics: AbstractAccountingMethod):
         self.__asset = asset
         # Transfer semantics: method to decide which lot to pick when transferring funds.
         self.__transfer_semantics = transfer_semantics
@@ -41,8 +40,10 @@ class PerWalletTransactions:
         self.__in_transactions: AbstractAcquiredLotCandidates = transfer_semantics.create_lot_candidates(
             acquired_lot_list=acquired_lot_list, acquired_lot_2_partial_amount=self.__acquired_lot_2_actual_amount
         )
-        self.__out_transactions: TransactionSet = TransactionSet(configuration, "OUT", asset, from_date, to_date)
-        self.__intra_transactions: TransactionSet = TransactionSet(configuration, "INTRA", asset, from_date, to_date)
+        # These are the unfiltered per-wallet transaction sets: InputData applies the report window
+        # afterwards via from_date / to_date.
+        self.__out_transactions: TransactionSet = TransactionSet(configuration, "OUT", asset, MIN_DATE, MAX_DATE)
+        self.__intra_transactions: TransactionSet = TransactionSet(configuration, "INTRA", asset, MIN_DATE, MAX_DATE)
 
     @property
     def asset(self) -> str:
@@ -105,14 +106,7 @@ class TransferAnalyzer:
         carried_fiat_fee: RP2Decimal = from_in_transaction.fiat_fee * carried_fraction
         carried_fiat_in_with_fee: RP2Decimal = from_in_transaction.fiat_in_with_fee * carried_fraction
 
-        # Find cost basis timestamp.
-        current_from_in_transaction: Optional[InTransaction] = from_in_transaction
-        cost_basis_timestamp_string = from_in_transaction.timestamp.isoformat()
-        while True:
-            current_from_in_transaction = current_from_in_transaction.from_lot if current_from_in_transaction is not None else None
-            if current_from_in_transaction is None:
-                break
-            cost_basis_timestamp_string = current_from_in_transaction.timestamp.isoformat()
+        cost_basis_timestamp_string = from_in_transaction.cost_basis_timestamp.isoformat()
 
         result = InTransaction(
             configuration=self.__configuration,
@@ -120,7 +114,7 @@ class TransferAnalyzer:
             asset=transfer_transaction.asset,
             exchange=transfer_transaction.to_exchange,
             holder=transfer_transaction.to_holder,
-            transaction_type=from_in_transaction.transaction_type.value,
+            transaction_type=self._to_transaction_type(from_in_transaction),
             crypto_in=amount,
             spot_price=from_in_transaction.spot_price,
             fiat_in_no_fee=carried_fiat_in_no_fee,
@@ -152,10 +146,14 @@ class TransferAnalyzer:
 
         return result
 
+    def _to_transaction_type(self, from_in_transaction: InTransaction) -> str:
+        # A moved earn lot must not be treated as a fresh taxable earning in the destination wallet.
+        if from_in_transaction.transaction_type.is_earn_type():
+            return "Buy"
+        return from_in_transaction.transaction_type.value
+
     def _convert_per_wallet_transactions_to_input_data(self, universal_input_data: InputData, per_wallet_transactions: PerWalletTransactions) -> InputData:
-        in_transaction_set = TransactionSet(
-            self.__configuration, "IN", universal_input_data.asset, universal_input_data.from_date, universal_input_data.to_date
-        )
+        in_transaction_set = TransactionSet(self.__configuration, "IN", universal_input_data.asset, MIN_DATE, MAX_DATE)
         for in_transaction in per_wallet_transactions.in_transactions.acquired_lot_list:
             in_transaction_set.add_entry(in_transaction)
 
@@ -234,13 +232,7 @@ class TransferAnalyzer:
                 account = Account(transaction.exchange, transaction.holder)
                 per_wallet_transactions = wallet_2_per_wallet_transactions.setdefault(
                     account,
-                    PerWalletTransactions(
-                        self.__configuration,
-                        self.__universal_input_data.asset,
-                        self.__transfer_semantics,
-                        self.__universal_input_data.from_date,
-                        self.__universal_input_data.to_date,
-                    ),
+                    PerWalletTransactions(self.__configuration, self.__universal_input_data.asset, self.__transfer_semantics),
                 )
                 per_wallet_transactions.in_transactions.add_acquired_lot(transaction)
                 per_wallet_transactions.in_transactions.set_to_index(len(per_wallet_transactions.in_transactions.acquired_lot_list) - 1)
@@ -283,13 +275,7 @@ class TransferAnalyzer:
                 to_account = Account(transaction.to_exchange, transaction.to_holder)
                 wallet_2_per_wallet_transactions.setdefault(
                     to_account,
-                    PerWalletTransactions(
-                        self.__configuration,
-                        self.__universal_input_data.asset,
-                        self.__transfer_semantics,
-                        self.__universal_input_data.from_date,
-                        self.__universal_input_data.to_date,
-                    ),
+                    PerWalletTransactions(self.__configuration, self.__universal_input_data.asset, self.__transfer_semantics),
                 )
 
                 # Find the acquired lots that cover the transfer and mark them as partially (or fully) transferred.

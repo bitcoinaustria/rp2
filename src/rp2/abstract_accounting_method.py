@@ -47,6 +47,9 @@ class AcquiredLotSortKey(NamedTuple):
 
 
 class AbstractAccountingMethodIterator:
+    def __iter__(self) -> "AbstractAccountingMethodIterator":
+        return self
+
     def __next__(self) -> InTransaction:
         raise NotImplementedError("Abstract function")
 
@@ -209,17 +212,23 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         if not isinstance(accounting_method, AbstractFeatureBasedAccountingMethod):
             raise RP2TypeError(f"Internal error: accounting_method is not of type AbstractFeatureBasedAccountingMethod, but of type {type(accounting_method)}")
         self.__acquired_lot_heap: List[Tuple[AcquiredLotSortKey, InTransaction]] = []
+        self.__taxable_event_acquired_lot_heap: List[Tuple[AcquiredLotSortKey, InTransaction]] = []
 
     def set_to_index(self, to_index: int) -> None:
         # Control how far to advance the iterator, caller is responsible for updating
         for i in range(self.to_index, to_index + 1):
             lot = self.acquired_lot_list[i]
-            self._accounting_method.add_selected_lot_to_heap(self.acquired_lot_heap, lot)
+            self._accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, lot)
+            self._accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, lot)
         super().set_to_index(to_index)
 
     @property
     def acquired_lot_heap(self) -> List[Tuple[AcquiredLotSortKey, InTransaction]]:
         return self.__acquired_lot_heap
+
+    @property
+    def taxable_event_acquired_lot_heap(self) -> List[Tuple[AcquiredLotSortKey, InTransaction]]:
+        return self.__taxable_event_acquired_lot_heap
 
     # CAUTION:
     # - acquired_lot must be the last lot chronologically.
@@ -228,6 +237,7 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         super().add_acquired_lot(acquired_lot)
         accounting_method = cast(AbstractFeatureBasedAccountingMethod, self.accounting_method)
         accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, acquired_lot)
+        accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, acquired_lot)
 
     def reset_partial_amounts(self, accounting_method: "AbstractAccountingMethod", original_partial_amounts: Dict[InTransaction, RP2Decimal]) -> None:
         if not isinstance(accounting_method, AbstractFeatureBasedAccountingMethod):
@@ -235,6 +245,7 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         super().reset_partial_amounts(accounting_method, original_partial_amounts)
         for current_transaction, _ in original_partial_amounts.items():
             accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, current_transaction)
+            accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, current_transaction)
 
 
 class AbstractAccountingMethod:
@@ -323,8 +334,15 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
         heap_item = (self.sort_key(lot), lot)
         heappush(heap, heap_item)
 
+    def add_selected_lot_to_taxable_event_heap(self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction) -> None:
+        heap_item = (self.taxable_event_sort_key(lot), lot)
+        heappush(heap, heap_item)
+
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
         raise NotImplementedError("Abstract function")
+
+    def taxable_event_sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
+        return self.sort_key(lot)
 
     def _create_accounting_method_iterator(self, lot_candidates: AbstractAcquiredLotCandidates) -> FeatureBasedAccountingMethodIterator:
         if not isinstance(lot_candidates, FeatureBasedAcquiredLotCandidates):
@@ -344,7 +362,12 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
             raise RP2TypeError(f"Internal error: lot_candidates is not of type FeatureBasedAcquiredLotCandidates, but of type {type(lot_candidates)}")
         # This plugin features O(n * log(m)) complexity, where n is the number
         # of transactions and m is the number of unexhausted acquisition lots.
-        for acquired_lot in lot_candidates:
+        iterator = (
+            FeatureBasedAccountingMethodIterator(lot_candidates.taxable_event_acquired_lot_heap)
+            if taxable_event is not None
+            else self._create_accounting_method_iterator(lot_candidates)
+        )
+        for acquired_lot in iterator:
             acquired_lot_amount: RP2Decimal = ZERO
             if not lot_candidates.has_partial_amount(acquired_lot):
                 acquired_lot_amount = acquired_lot.crypto_in
@@ -361,5 +384,6 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
         if selected_acquired_lot_amount > ZERO and selected_acquired_lot:
             lot_candidates.clear_partial_amount(selected_acquired_lot)
             self.add_selected_lot_to_heap(lot_candidates.acquired_lot_heap, selected_acquired_lot)
+            self.add_selected_lot_to_taxable_event_heap(lot_candidates.taxable_event_acquired_lot_heap, selected_acquired_lot)
             return AcquiredLotAndAmount(acquired_lot=selected_acquired_lot, amount=selected_acquired_lot_amount)
         return None

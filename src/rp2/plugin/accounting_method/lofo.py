@@ -23,3 +23,6 @@ from rp2.in_transaction import InTransaction
 class AccountingMethod(AbstractFeatureBasedAccountingMethod):
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
         return AcquiredLotSortKey(lot.spot_price, lot.timestamp.timestamp(), lot.row)
+
+    def taxable_event_sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
+        return AcquiredLotSortKey(lot.spot_price, lot.cost_basis_timestamp.timestamp(), lot.row)

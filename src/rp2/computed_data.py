@@ -14,7 +14,7 @@
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Dict, List, Optional, Set, cast
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 from rp2.abstract_entry import AbstractEntry
 from rp2.balance import BalanceSet
@@ -210,6 +210,8 @@ class ComputedData:
         TransactionSet.type_check("taxable_event_set", unfiltered_taxable_event_set, EntrySetType.MIXED, asset, True)
         GainLossSet.type_check("gain_loss_set", unfiltered_gain_loss_set)
 
+        self.__unfiltered_taxable_event_set: TransactionSet = unfiltered_taxable_event_set
+        self.__unfiltered_gain_loss_set: GainLossSet = unfiltered_gain_loss_set
         self.__filtered_taxable_event_set: TransactionSet = unfiltered_taxable_event_set.duplicate(from_date=from_date, to_date=to_date)
         self.__filtered_gain_loss_set: GainLossSet = unfiltered_gain_loss_set.duplicate(from_date=from_date, to_date=to_date)
 
@@ -240,8 +242,9 @@ class ComputedData:
         crypto_fee_running_sum = ZERO
         for entry in input_data.unfiltered_in_transaction_set:
             in_transaction: InTransaction = cast(InTransaction, entry)
-            crypto_running_sum += in_transaction.crypto_in
-            crypto_fee_running_sum += in_transaction.crypto_fee
+            if not input_data.is_intra_backed_artificial_in_transaction(in_transaction):
+                crypto_running_sum += in_transaction.crypto_in
+                crypto_fee_running_sum += in_transaction.crypto_fee
             self.__crypto_in_running_sum[in_transaction] = crypto_running_sum
             self.__crypto_in_fee_running_sum[in_transaction] = crypto_fee_running_sum
 
@@ -377,6 +380,10 @@ class ComputedData:
         if not self.has_in_transaction_actual_amounts():
             return None
         return self.__in_transaction_2_actual_amount[in_transaction] if in_transaction in self.__in_transaction_2_actual_amount else in_transaction.crypto_in
+
+    def get_unfiltered_taxable_event_and_gain_loss_set(self) -> Tuple[TransactionSet, GainLossSet]:
+        """Unfiltered taxable-event and gain/loss sets for callers that need pre-window data."""
+        return self.__unfiltered_taxable_event_set, self.__unfiltered_gain_loss_set
 
 
 def _yearly_gain_loss_sort_criteria(yearly_gain_loss: YearlyGainLoss) -> str:

@@ -74,8 +74,9 @@ def compute_tax_per_wallet(
         _extend_transaction_set(merged_intra_set, per_wallet_input.unfiltered_intra_transaction_set)
         merged_actual_amounts.update(per_wallet_input.in_transaction_2_actual_amount)
 
-        _extend_transaction_set(merged_taxable_events, per_wallet_computed.taxable_event_set)
-        _extend_gain_loss_set(merged_gain_loss_set, per_wallet_computed.gain_loss_set)
+        taxable_event_set, gain_loss_set = per_wallet_computed.get_unfiltered_taxable_event_and_gain_loss_set()
+        _extend_transaction_set(merged_taxable_events, taxable_event_set)
+        _extend_gain_loss_set(merged_gain_loss_set, gain_loss_set)
 
     merged_input_data: InputData = InputData(
         asset,
