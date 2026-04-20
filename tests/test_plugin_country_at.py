@@ -37,12 +37,12 @@ class TestPluginCountryAT(unittest.TestCase):
         self.assertEqual(self.country.get_accounting_methods(), expected)
         self.assertEqual(self.country.get_default_accounting_method(), "moving_average_at")
 
-    def test_report_generators_phase1(self) -> None:
-        expected: Set[str] = {"open_positions", "rp2_full_report"}
+    def test_report_generators(self) -> None:
+        expected: Set[str] = {"open_positions", "rp2_full_report", "at.tax_report_at"}
         self.assertEqual(self.country.get_report_generators(), expected)
 
     def test_default_generation_language(self) -> None:
-        self.assertEqual(self.country.get_default_generation_language(), "de_AT")
+        self.assertEqual(self.country.get_default_generation_language(), "en")
 
     def test_entry_point_is_callable(self) -> None:
         # Verifies the console-script target resolves and is wired to rp2_main.

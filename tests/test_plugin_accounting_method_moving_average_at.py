@@ -174,19 +174,46 @@ class TestMovingAverageAT(unittest.TestCase):
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")  # 0.5 * 100
 
     def test_neu_pool_ignores_alt_lots(self) -> None:
-        # A 1000-EUR alt lot should NOT contaminate the neu pool average.
+        # A 1000-EUR alt lot should NOT contaminate the neu pool average. Explicit
+        # `at_regime=neu` on the disposal overrides the default alt-first preference.
         in_txs = [
             self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="1000"),  # alt
             self._buy(row=2, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),  # neu
             self._buy(row=3, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),  # neu
         ]
         out_txs = [
-            self._sell(row=4, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500"),  # defaults to neu
+            self._sell(row=4, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_regime=neu"),
         ]
         gains = self._gain_loss_list(self._compute(in_txs, out_txs))
         self.assertEqual(len(gains), 1)
         # Neu pool: (1+1, 100+300, avg 200). Cost basis 0.5 * 200 = 100.
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")
+
+    def test_default_unmarked_disposal_prefers_alt(self) -> None:
+        # With both Alt and Neu lots and no explicit marker, the taxpayer-friendly default
+        # picks the oldest alt lot (alt > 1 year is tax-free so spending alt first is optimal).
+        in_txs = [
+            self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="100"),  # alt
+            self._buy(row=2, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="300"),  # neu
+        ]
+        out_txs = [
+            self._sell(row=3, timestamp="2023-06-01 00:00:00 +0000", crypto_out="0.5", spot_price="500"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        assert gains[0].acquired_lot is not None
+        self.assertEqual(gains[0].acquired_lot.row, 1)
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")  # alt own cost: 0.5 * 100
+
+    def test_default_unmarked_disposal_falls_back_to_neu_when_no_alt(self) -> None:
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),
+        ]
+        out_txs = [self._sell(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500")]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")  # 0.5 * pool_avg_200
 
     def test_alt_fifo_across_multiple_alt_lots(self) -> None:
         # Three alt lots; alt disposal consumes first FIFO-wise.

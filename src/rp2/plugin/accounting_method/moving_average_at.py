@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from typing import Dict, Optional, Tuple
-from zoneinfo import ZoneInfo
 
 from rp2.abstract_accounting_method import (
     AbstractAcquiredLotCandidates,
@@ -24,62 +22,15 @@ from rp2.abstract_accounting_method import (
 )
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.in_transaction import InTransaction
+from rp2.plugin.country.at import (
+    REGIME_ALT,
+    REGIME_NEU,
+    classify_lot_regime,
+    event_has_explicit_regime,
+    explicit_event_regime,
+    has_swap_link,
+)
 from rp2.rp2_decimal import ZERO, RP2Decimal
-
-# Austrian Altvermögen/Neuvermögen cutoff per § 27b EStG: anything acquired on or before
-# 2021-02-28 (Europe/Vienna) is Altvermögen; everything later is Neuvermögen.
-_AT_NEU_CUTOFF: datetime = datetime(2021, 3, 1, 0, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
-
-_REGIME_ALT: str = "alt"
-_REGIME_NEU: str = "neu"
-
-_REGIME_MARKER_ALT: str = "at_regime=alt"
-_REGIME_MARKER_NEU: str = "at_regime=neu"
-
-# Crypto-to-crypto swap marker (§ 27b Abs 3 Z 2 EStG: swaps are tax-neutral for Neuvermögen).
-# The outgoing leg carries `at_swap_link=<id>` in its notes; the id is Kassiber-assigned and
-# pairs to the incoming leg on the other asset's compute_tax run (where Kassiber populates the
-# In's fiat_in_with_fee with the carried basis). On the outgoing side, the AT method surfaces
-# a zero-gain disposal by setting the cost-basis override equal to proceeds; the Neu pool is
-# still depleted at the running pool average (depletion math is independent of the reported
-# gain). Altvermögen swaps deliberately ignore the marker — Austrian law treats them as regime-
-# breaking taxable disposals.
-_SWAP_MARKER: str = "at_swap_link="
-
-
-def _has_swap_link(event: Optional[AbstractTransaction]) -> bool:
-    if event is None:
-        return False
-    return bool(event.notes) and _SWAP_MARKER in event.notes
-
-
-def _classify_regime_from_notes(notes: Optional[str]) -> Optional[str]:
-    if not notes:
-        return None
-    if _REGIME_MARKER_ALT in notes:
-        return _REGIME_ALT
-    if _REGIME_MARKER_NEU in notes:
-        return _REGIME_NEU
-    return None
-
-
-def _classify_lot_regime(lot: InTransaction) -> str:
-    tagged = _classify_regime_from_notes(lot.notes)
-    if tagged is not None:
-        return tagged
-    return _REGIME_ALT if lot.timestamp < _AT_NEU_CUTOFF else _REGIME_NEU
-
-
-def _classify_event_regime(event: Optional[AbstractTransaction]) -> str:
-    if event is None:
-        # Defensive: if the engine couldn't supply the event (shouldn't happen for non-earn
-        # disposals), default to Neuvermögen — it's the common post-reform regime and keeps
-        # pool-based math self-consistent.
-        return _REGIME_NEU
-    tagged = _classify_regime_from_notes(event.notes)
-    if tagged is not None:
-        return tagged
-    return _REGIME_NEU
 
 
 # Austrian-specific moving-average method. Partitions lots into Altvermögen and Neuvermögen
@@ -108,13 +59,22 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
         self.__sync_neu_pool(lot_candidates)
-        regime: str = _classify_event_regime(taxable_event)
-        if regime == _REGIME_ALT:
-            return self.__seek_alt_lot(lot_candidates)
+        # Explicit `at_regime=alt|neu` marker on the disposal wins unconditionally.
+        if event_has_explicit_regime(taxable_event):
+            regime: str = explicit_event_regime(taxable_event)
+            if regime == REGIME_ALT:
+                return self.__seek_alt_lot(lot_candidates)
+            return self.__seek_neu_lot(lot_candidates, taxable_event_amount, taxable_event)
+        # No marker: try Altvermögen first (taxpayer-friendly — Alt > 1 year is tax-free),
+        # fall back to Neuvermögen. This also makes pure-Alt and pure-Neu histories work
+        # naturally without requiring markers.
+        alt_result: Optional[AcquiredLotAndAmount] = self.__seek_alt_lot(lot_candidates)
+        if alt_result is not None:
+            return alt_result
         return self.__seek_neu_lot(lot_candidates, taxable_event_amount, taxable_event)
 
     def __seek_alt_lot(self, lot_candidates: AbstractAcquiredLotCandidates) -> Optional[AcquiredLotAndAmount]:
-        selected, remaining = self.__find_non_exhausted_lot(lot_candidates, _REGIME_ALT)
+        selected, remaining = self.__find_non_exhausted_lot(lot_candidates, REGIME_ALT)
         if selected is None:
             return None
         lot_candidates.clear_partial_amount(selected)
@@ -126,7 +86,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event_amount: RP2Decimal,
         taxable_event: Optional[AbstractTransaction],
     ) -> Optional[AcquiredLotAndAmount]:
-        selected, remaining = self.__find_non_exhausted_lot(lot_candidates, _REGIME_NEU)
+        selected, remaining = self.__find_non_exhausted_lot(lot_candidates, REGIME_NEU)
         if selected is None:
             return None
         pool_qty, pool_cost_total, _ = self.__neu_pool_state[id(lot_candidates)]
@@ -137,7 +97,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         # construction, so swap neutrality and normal disposals preserve pool state identically.
         self.__deduct_from_neu_pool(lot_candidates, consumed, pool_average)
         lot_candidates.clear_partial_amount(selected)
-        if _has_swap_link(taxable_event) and taxable_event is not None:
+        if has_swap_link(taxable_event) and taxable_event is not None:
             # Tax-neutral Neu swap: override cost basis with the proceeds' per-unit value so the
             # GainLoss shows zero gain. The incoming asset's In leg is populated by Kassiber
             # with the carried basis (Kassiber pairs legs via the at_swap_link=<id> marker).
@@ -153,7 +113,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         upper: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(upper + 1):
             lot: InTransaction = lots[i]
-            if _classify_lot_regime(lot) != regime:
+            if classify_lot_regime(lot) != regime:
                 continue
             if lot_candidates.has_partial_amount(lot):
                 remaining: RP2Decimal = lot_candidates.get_partial_amount(lot)
@@ -170,7 +130,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         upper: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(last_synced + 1, upper + 1):
             lot = lots[i]
-            if _classify_lot_regime(lot) != _REGIME_NEU:
+            if classify_lot_regime(lot) != REGIME_NEU:
                 continue
             pool_qty = pool_qty + lot.crypto_in
             pool_cost_total = pool_cost_total + lot.fiat_in_with_fee
