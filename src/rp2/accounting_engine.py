@@ -40,6 +40,9 @@ class TaxableEventAndAcquiredLot(NamedTuple):
     acquired_lot: Optional[InTransaction]
     taxable_event_amount: RP2Decimal
     acquired_lot_amount: RP2Decimal
+    # Per-unit cost basis override surfaced from the accounting method. Forwarded into
+    # GainLoss so pool-based methods can supply their running average without touching lots.
+    unit_cost_basis_override: Optional[RP2Decimal] = None
 
 
 @dataclass(frozen=True, eq=True)
@@ -178,6 +181,7 @@ class AccountingEngine:
     ) -> TaxableEventAndAcquiredLot:
         new_acquired_lot: Optional[InTransaction] = acquired_lot
         new_acquired_lot_amount: RP2Decimal = acquired_lot_amount - taxable_event_amount if acquired_lot is not None else ZERO
+        unit_cost_basis_override: Optional[RP2Decimal] = None
 
         try:
             new_taxable_event: AbstractTransaction = next(self.__taxable_event_iterator)
@@ -190,18 +194,26 @@ class AccountingEngine:
         if taxable_event and taxable_event.timestamp < new_taxable_event.timestamp:
             if acquired_lot:
                 self._set_partial_amount(acquired_lot, new_acquired_lot_amount)
-            (_, new_acquired_lot, _, new_acquired_lot_amount) = self.get_acquired_lot_for_taxable_event(
+            paired: TaxableEventAndAcquiredLot = self.get_acquired_lot_for_taxable_event(
                 new_taxable_event, acquired_lot, new_taxable_event_amount, new_acquired_lot_amount
             )
+            new_acquired_lot = paired.acquired_lot
+            new_acquired_lot_amount = paired.acquired_lot_amount
+            unit_cost_basis_override = paired.unit_cost_basis_override
 
         return TaxableEventAndAcquiredLot(
             taxable_event=new_taxable_event,
             acquired_lot=new_acquired_lot,
             taxable_event_amount=new_taxable_event_amount,
             acquired_lot_amount=new_acquired_lot_amount,
+            unit_cost_basis_override=unit_cost_basis_override,
         )
 
     # After selecting the taxable event, RP2 calls this function to find the acquired_lot to pair with it.
+    # Handles the pool-based unit_cost_basis_override returned by methods like moving_average_at:
+    # it forwards into TaxableEventAndAcquiredLot so GainLoss can apply the pool average without
+    # touching the lot. get_acquired_lot_for_timestamp (below) is the taxable-event-free path
+    # used by global_allocation and does not participate in the override.
     def get_acquired_lot_for_taxable_event(
         self,
         taxable_event: AbstractTransaction,
@@ -209,13 +221,31 @@ class AccountingEngine:
         taxable_event_amount: RP2Decimal,
         acquired_lot_amount: RP2Decimal,
     ) -> TaxableEventAndAcquiredLot:
-        acquired_lot_and_amounts = self.get_acquired_lot_for_timestamp(taxable_event.timestamp, acquired_lot, taxable_event_amount, acquired_lot_amount)
-        return TaxableEventAndAcquiredLot(
-            taxable_event=taxable_event,
-            acquired_lot=acquired_lot_and_amounts.acquired_lot,
-            taxable_event_amount=acquired_lot_and_amounts.taxable_event_amount,
-            acquired_lot_amount=acquired_lot_and_amounts.acquired_lot_amount,
+        new_taxable_event_amount: RP2Decimal = taxable_event_amount - acquired_lot_amount
+        acquired_lot_and_index: Optional[_AcquiredLotAndIndex] = self.__acquired_lot_avl.find_max_value_less_than(
+            self._get_avl_node_key_with_max_disambiguator(taxable_event.timestamp)
         )
+        if acquired_lot_and_index is not None:
+            if acquired_lot_and_index.acquired_lot != self.__acquired_lot_list[acquired_lot_and_index.index]:
+                raise RP2RuntimeError("Internal error: acquired_lot incongruence in accounting logic")
+            method = self._get_accounting_method(taxable_event.timestamp.year)
+            lot_candidates: Optional[AbstractAcquiredLotCandidates] = self.__years_2_lot_candidates.find_max_value_less_than(taxable_event.timestamp.year)
+            # lot_candidates is 1:1 with acquired_lot_and_index, should always be True
+            if lot_candidates:
+                lot_candidates.set_to_index(acquired_lot_and_index.index)
+                acquired_lot_and_amount: Optional[AcquiredLotAndAmount] = method.seek_non_exhausted_acquired_lot(
+                    lot_candidates, new_taxable_event_amount, taxable_event=taxable_event
+                )
+                if acquired_lot_and_amount:
+                    return TaxableEventAndAcquiredLot(
+                        taxable_event=taxable_event,
+                        acquired_lot=acquired_lot_and_amount.acquired_lot,
+                        taxable_event_amount=new_taxable_event_amount,
+                        acquired_lot_amount=acquired_lot_and_amount.amount,
+                        unit_cost_basis_override=acquired_lot_and_amount.unit_cost_basis_override,
+                    )
+
+        raise AcquiredLotsExhaustedException()
 
     def get_acquired_lot_for_timestamp(
         self,
@@ -225,7 +255,7 @@ class AccountingEngine:
         acquired_lot_amount: RP2Decimal,
     ) -> AcquiredLotAndAmounts:
         new_taxable_event_amount: RP2Decimal = taxable_event_amount - acquired_lot_amount
-        # Find the acquired_lot and index just before the taxable event: the index is used as an upper bound
+        # Find the acquired_lot and index just before the timestamp: the index is used as an upper bound
         # in the search of acquired lot candidates (see set_to_index() below).
         acquired_lot_and_index: Optional[_AcquiredLotAndIndex] = self.__acquired_lot_avl.find_max_value_less_than(
             self._get_avl_node_key_with_max_disambiguator(timestamp)

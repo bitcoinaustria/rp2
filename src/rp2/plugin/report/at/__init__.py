@@ -1,4 +1,4 @@
-# Copyright 2021 eprbell
+# Copyright 2026 bitcoinaustria
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,17 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from typing import Optional, Tuple
-
-class PackagedDocument:
-    def __init__(self, name: str) -> None: ...
-
-class Table:
-    def __init__(self, name: str) -> None: ...
-
-class Sheet:
-    def __init__(self, name: str, size: Optional[Tuple[int, int]] = ...) -> None: ...
-
-def opendoc(filename: str) -> PackagedDocument: ...
-def newdoc(doctype: str, filename: str, template: Optional[str] = ...) -> PackagedDocument: ...
