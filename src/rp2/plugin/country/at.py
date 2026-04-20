@@ -33,13 +33,14 @@ class AT(AbstractCountry):
         return sys.maxsize
 
     # Default accounting method to use if the user doesn't specify one on the command line.
-    # Phase 1 ships FIFO only; `moving_average_at` lands in Phase 2 and becomes the default.
+    # The Alt/Neu-aware wrapper lands in Phase 3 and will become the default; until then FIFO
+    # stays the default and `moving_average` is opt-in via `-m moving_average`.
     def get_default_accounting_method(self) -> str:
         return "fifo"
 
     # Set of accounting methods accepted in the country.
     def get_accounting_methods(self) -> Set[str]:
-        return {"fifo"}
+        return {"fifo", "moving_average"}
 
     # Default set of generators to use if the user doesn't specify them on the command line.
     # `at.tax_report_at` (E 1kv-aligned) lands in Phase 5.

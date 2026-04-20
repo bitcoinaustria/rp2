@@ -29,6 +29,9 @@ from rp2.rp2_error import RP2RuntimeError, RP2TypeError
 class AcquiredLotAndAmount(NamedTuple):
     acquired_lot: InTransaction
     amount: RP2Decimal
+    # Per-unit cost basis override. Pool-based methods (e.g. moving average) set this to the
+    # running pool average at the time of the disposal. None means "use the lot's own cost basis".
+    unit_cost_basis_override: Optional[RP2Decimal] = None
 
 
 class AcquiredLotCandidatesOrder(Enum):

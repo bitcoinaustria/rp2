@@ -30,6 +30,7 @@ class GainLoss(AbstractEntry):
         crypto_amount: RP2Decimal,
         taxable_event: AbstractTransaction,
         acquired_lot: Optional[InTransaction],
+        unit_cost_basis_override: Optional[RP2Decimal] = None,
     ) -> None:
         self.__taxable_event: AbstractTransaction = cast(AbstractTransaction, AbstractTransaction.type_check("taxable_event", taxable_event))
         if not taxable_event.is_taxable():
@@ -51,7 +52,13 @@ class GainLoss(AbstractEntry):
                 )
             if acquired_lot is not None:
                 raise RP2TypeError(f"acquired_lot must be None for earn-typed taxable_events, instead it's {acquired_lot}")
+            if unit_cost_basis_override is not None:
+                raise RP2TypeError("unit_cost_basis_override must be None for earn-typed taxable_events")
         self.__acquired_lot: Optional[InTransaction] = acquired_lot
+
+        if unit_cost_basis_override is not None:
+            configuration.type_check_positive_decimal("unit_cost_basis_override", unit_cost_basis_override)
+        self.__unit_cost_basis_override: Optional[RP2Decimal] = unit_cost_basis_override
 
         if self.__crypto_amount > self.__taxable_event.crypto_balance_change or (self.__acquired_lot and self.__crypto_amount > self.__acquired_lot.crypto_in):
             raise RP2ValueError(
@@ -184,6 +191,11 @@ class GainLoss(AbstractEntry):
             if not self.taxable_event.is_earning():
                 raise RP2RuntimeError("Internal error: acquired lot is None but taxable event is not an earning")
             return ZERO
+        if self.__unit_cost_basis_override is not None:
+            # Pool-based methods (e.g. moving average) supply the per-unit cost basis that
+            # corresponds to the pool's running average at the time of the disposal. The lot is
+            # retained only for audit-trail pairing; its own fiat_in_with_fee is not authoritative.
+            return self.__unit_cost_basis_override * self.crypto_amount
         # The cost basis is fiat_in + fee (as explained in https://www.irs.gov/publications/p544 and
         # https://taxbit.com/cryptocurrency-tax-guide).
         # Also note that we don't simply multiply by acquired_lot_fraction_percentage to avoid potential precision loss

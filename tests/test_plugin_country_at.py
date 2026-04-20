@@ -32,8 +32,8 @@ class TestPluginCountryAT(unittest.TestCase):
         # Austrian accounting method (Phase 3+).
         self.assertEqual(self.country.get_long_term_capital_gain_period(), sys.maxsize)
 
-    def test_accounting_methods_phase1(self) -> None:
-        expected: Set[str] = {"fifo"}
+    def test_accounting_methods(self) -> None:
+        expected: Set[str] = {"fifo", "moving_average"}
         self.assertEqual(self.country.get_accounting_methods(), expected)
         self.assertEqual(self.country.get_default_accounting_method(), "fifo")
 
