@@ -209,6 +209,60 @@ class TestMovingAverageAT(unittest.TestCase):
         self._assert_decimal_equal(gains[1].crypto_amount, "0.5")
         self._assert_decimal_equal(gains[1].fiat_cost_basis, "100")  # 0.5 * 200
 
+    def test_neu_swap_produces_zero_gain(self) -> None:
+        # Neu swap (outgoing leg). at_swap_link marker in notes → cost basis = proceeds → gain 0.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),
+        ]
+        out_txs = [
+            self._sell(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_swap_link=swap-42"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        # Proceeds = 0.5 * 500 = 250; cost basis matches → gain 0.
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "250")
+        self._assert_decimal_equal(gains[0].fiat_gain, "0")
+
+    def test_neu_swap_preserves_pool_average_for_later_disposals(self) -> None:
+        # Pool (2, 400, avg 200). Swap-out of 1 BTC at spot 999 (the swap price is economically
+        # irrelevant — pool must stay at avg 200). Later non-swap disposal sees the preserved avg.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),
+        ]
+        out_txs = [
+            self._sell(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_out="1", spot_price="999", notes="at_swap_link=x"),
+            self._sell(row=4, timestamp="2023-04-01 00:00:00 +0000", crypto_out="0.5", spot_price="500"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 2)
+        # First is the swap with zero gain.
+        self._assert_decimal_equal(gains[0].fiat_gain, "0")
+        # Second is a regular disposal: pool avg should still be 200.
+        self._assert_decimal_equal(gains[1].fiat_cost_basis, "100")  # 0.5 * 200
+
+    def test_alt_swap_marker_ignored_realizes_normally(self) -> None:
+        # Austrian law: swapping Altvermögen breaks Alt status and IS taxable. The marker is
+        # only honored for Neu disposals; on Alt it's a no-op and we realize a normal gain.
+        in_txs = [
+            self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+        ]
+        out_txs = [
+            self._sell(
+                row=2,
+                timestamp="2023-06-01 00:00:00 +0000",
+                crypto_out="0.5",
+                spot_price="500",
+                notes="at_regime=alt at_swap_link=ignored",
+            ),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        # Alt disposal with lot's own cost basis: 0.5 * 100 = 50. Proceeds 250 → gain 200.
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")
+        self._assert_decimal_equal(gains[0].fiat_gain, "200")
+
     def test_neu_acquisition_after_neu_disposal_moves_average(self) -> None:
         # Phase-2 interleaving scenario, but on the AT method and through the Neu pool only.
         in_txs = [

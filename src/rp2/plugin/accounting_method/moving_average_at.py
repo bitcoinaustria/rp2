@@ -36,6 +36,22 @@ _REGIME_NEU: str = "neu"
 _REGIME_MARKER_ALT: str = "at_regime=alt"
 _REGIME_MARKER_NEU: str = "at_regime=neu"
 
+# Crypto-to-crypto swap marker (§ 27b Abs 3 Z 2 EStG: swaps are tax-neutral for Neuvermögen).
+# The outgoing leg carries `at_swap_link=<id>` in its notes; the id is Kassiber-assigned and
+# pairs to the incoming leg on the other asset's compute_tax run (where Kassiber populates the
+# In's fiat_in_with_fee with the carried basis). On the outgoing side, the AT method surfaces
+# a zero-gain disposal by setting the cost-basis override equal to proceeds; the Neu pool is
+# still depleted at the running pool average (depletion math is independent of the reported
+# gain). Altvermögen swaps deliberately ignore the marker — Austrian law treats them as regime-
+# breaking taxable disposals.
+_SWAP_MARKER: str = "at_swap_link="
+
+
+def _has_swap_link(event: Optional[AbstractTransaction]) -> bool:
+    if event is None:
+        return False
+    return bool(event.notes) and _SWAP_MARKER in event.notes
+
 
 def _classify_regime_from_notes(notes: Optional[str]) -> Optional[str]:
     if not notes:
@@ -95,7 +111,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         regime: str = _classify_event_regime(taxable_event)
         if regime == _REGIME_ALT:
             return self.__seek_alt_lot(lot_candidates)
-        return self.__seek_neu_lot(lot_candidates, taxable_event_amount)
+        return self.__seek_neu_lot(lot_candidates, taxable_event_amount, taxable_event)
 
     def __seek_alt_lot(self, lot_candidates: AbstractAcquiredLotCandidates) -> Optional[AcquiredLotAndAmount]:
         selected, remaining = self.__find_non_exhausted_lot(lot_candidates, _REGIME_ALT)
@@ -104,15 +120,28 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         lot_candidates.clear_partial_amount(selected)
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining)
 
-    def __seek_neu_lot(self, lot_candidates: AbstractAcquiredLotCandidates, taxable_event_amount: RP2Decimal) -> Optional[AcquiredLotAndAmount]:
+    def __seek_neu_lot(
+        self,
+        lot_candidates: AbstractAcquiredLotCandidates,
+        taxable_event_amount: RP2Decimal,
+        taxable_event: Optional[AbstractTransaction],
+    ) -> Optional[AcquiredLotAndAmount]:
         selected, remaining = self.__find_non_exhausted_lot(lot_candidates, _REGIME_NEU)
         if selected is None:
             return None
         pool_qty, pool_cost_total, _ = self.__neu_pool_state[id(lot_candidates)]
         pool_average: RP2Decimal = pool_cost_total / pool_qty if pool_qty > ZERO else ZERO
         consumed: RP2Decimal = taxable_event_amount if taxable_event_amount < remaining else remaining
+        # Pool depletes at pool_average regardless of how the gain/loss is reported. Depleting
+        # `amount * pool_average` from cost_total leaves the running average unchanged by
+        # construction, so swap neutrality and normal disposals preserve pool state identically.
         self.__deduct_from_neu_pool(lot_candidates, consumed, pool_average)
         lot_candidates.clear_partial_amount(selected)
+        if _has_swap_link(taxable_event) and taxable_event is not None:
+            # Tax-neutral Neu swap: override cost basis with the proceeds' per-unit value so the
+            # GainLoss shows zero gain. The incoming asset's In leg is populated by Kassiber
+            # with the carried basis (Kassiber pairs legs via the at_swap_link=<id> marker).
+            return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=taxable_event.spot_price)
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
 
     def __find_non_exhausted_lot(
