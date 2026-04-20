@@ -35,7 +35,7 @@ from rp2.plugin.country.at import (
     swap_link_id,
 )
 from rp2.rp2_decimal import ZERO, RP2Decimal
-from rp2.rp2_error import RP2TypeError
+from rp2.rp2_error import RP2RuntimeError, RP2TypeError
 
 LOGGER: logging.Logger = create_logger("tax_report_at")
 
@@ -246,7 +246,8 @@ class Generator(AbstractReportGenerator):
             header += [_("Holding days"), _("Status")]
         rows: List[List[str]] = [header]
         for asset, gl in entries:
-            assert gl.acquired_lot is not None  # disposals always have an acquired_lot
+            if gl.acquired_lot is None:
+                raise RP2RuntimeError("Internal error: disposal entry has no acquired_lot")
             row: List[str] = [
                 _fmt_date(gl.taxable_event.timestamp),
                 asset,

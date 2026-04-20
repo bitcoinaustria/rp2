@@ -12,26 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
-from typing import Iterable, cast, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Dict, Iterable, List, Optional, cast
 
-from rp2.configuration import Configuration
+from prezzemolo.avl_tree import AVLTree
+
 from rp2.abstract_accounting_method import AbstractAccountingMethod
 from rp2.accounting_engine import AccountingEngine, AcquiredLotsExhaustedException
+from rp2.configuration import Configuration
 from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
 from rp2.logger import LOGGER
 from rp2.rp2_decimal import ZERO, RP2Decimal
-from rp2.rp2_error import RP2RuntimeError, RP2ValueError, RP2TypeError
+from rp2.rp2_error import RP2RuntimeError, RP2TypeError, RP2ValueError
 from rp2.transaction_set import TransactionSet
-
-from prezzemolo.avl_tree import AVLTree
 
 
 class GlobalAllocator:
     def __init__(
-        self, configuration: Configuration,
+        self,
+        configuration: Configuration,
         allocation_method: AbstractAccountingMethod,
         wallet_2_per_wallet_input_data: Dict[Account, InputData],
         year: int,
@@ -56,8 +57,11 @@ class GlobalAllocator:
             balance = ZERO
             for in_transaction in input_data.unfiltered_in_transaction_set:
                 in_transaction = cast(InTransaction, in_transaction)
-                balance += input_data.in_transaction_2_actual_amount[in_transaction] \
-                    if in_transaction in input_data.in_transaction_2_actual_amount else in_transaction.crypto_in + in_transaction.crypto_fee
+                balance += (
+                    input_data.in_transaction_2_actual_amount[in_transaction]
+                    if in_transaction in input_data.in_transaction_2_actual_amount
+                    else in_transaction.crypto_in + in_transaction.crypto_fee
+                )
             self.__account_to_available_balance[account] = balance
         self.__wallet_2_per_wallet_input_data = wallet_2_per_wallet_input_data
         self.__year = Configuration.type_check_positive_int("year", year)
@@ -89,7 +93,7 @@ class GlobalAllocator:
                 if in_transaction.from_lot is not None:
                     LOGGER.info("Global allocation of %s: artificial in-transaction: %s", self.__year, repr(in_transaction))
                 acquired_lots.add_entry(in_transaction)
-        unique_id_to_actual_amount = {in_transaction.unique_id : amount for in_transaction, amount in in_transaction_2_actual_amount.items()}
+        unique_id_to_actual_amount = {in_transaction.unique_id: amount for in_transaction, amount in in_transaction_2_actual_amount.items()}
         LOGGER.info("Global allocation of %s: actual_amounts: %s.", self.__year, unique_id_to_actual_amount)
 
         # Process wallets in the order specified by the user. For each wallet, create intra transactions that model the global allocation.
@@ -114,7 +118,7 @@ class GlobalAllocator:
             from_holder=acquired_lot.holder,
             to_exchange=account.exchange,
             to_holder=account.holder,
-            spot_price=RP2Decimal(1), # TODO: can this be improved? It's not relevant for global allocation, but 1 as spot price may be misleading to users.
+            spot_price=RP2Decimal(1),  # Note: spot price is irrelevant for global allocation, so use a stable placeholder value.
             crypto_sent=amount,
             crypto_received=amount,
             row=artificial_id,
@@ -128,8 +132,8 @@ class GlobalAllocator:
     def __process_wallet(self, accounting_engine: AccountingEngine, account: Account) -> List[IntraTransaction]:
         result: List[IntraTransaction] = []
         try:
-            timestamp_string = f"{self.__year}-01-01 00:00:00 +0000"
-            timestamp = datetime.fromisoformat(timestamp_string)
+            timestamp = datetime(self.__year, 1, 1, tzinfo=timezone.utc)
+            timestamp_string = timestamp.strftime("%Y-%m-%d %H:%M:%S %z")
             balance_left_to_process: RP2Decimal = self.__account_to_available_balance[account]
             if balance_left_to_process == ZERO:
                 return result
@@ -143,7 +147,7 @@ class GlobalAllocator:
                     self.__leftover_acquired_lot = None
                     self.__leftover_acquired_lot_partial_amount = ZERO
                 else:
-                    (acquired_lot, balance_left_to_process, acquired_lot_amount) = accounting_engine.get_acquired_lot_for_timestamp(
+                    acquired_lot, balance_left_to_process, acquired_lot_amount = accounting_engine.get_acquired_lot_for_timestamp(
                         timestamp, acquired_lot, balance_left_to_process, acquired_lot_amount
                     )
                 # Type check values returned by accounting method plugin
