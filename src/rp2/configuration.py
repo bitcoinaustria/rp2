@@ -36,6 +36,7 @@ REPORT_GENERATOR_PACKAGE = "rp2.plugin.report"
 
 class Keyword(Enum):
     ACCOUNTING_METHODS = "accounting_methods"
+    APPLICATION_METHODS = "application_methods"
     ASSET = "asset"
     ASSETS = "assets"
     CRYPTO_FEE = "crypto_fee"
@@ -65,6 +66,7 @@ class Keyword(Enum):
     TO_EXCHANGE = "to_exchange"
     TO_HOLDER = "to_holder"
     TRANSACTION_TYPE = "transaction_type"
+    TRANSFER_METHODS = "transfer_methods"
     UNIQUE_ID = "unique_id"
 
 
@@ -151,6 +153,8 @@ class Configuration:  # pylint: disable=too-many-public-methods
         self.__holders: Set[str] = set()
         self.__generators: Set[str] = {f"{REPORT_GENERATOR_PACKAGE}.{generator}" for generator in country.get_report_generators()}
         self.__years_2_accounting_method_names: Dict[int, str] = {}
+        self.__years_2_application_method_names: Dict[int, str] = {}
+        self.__years_2_transfer_method_names: Dict[int, str] = {}
         self.__artificial_id_counter: int = 0
         self.__lock = Lock()
 
@@ -199,6 +203,18 @@ class Configuration:  # pylint: disable=too-many-public-methods
                     if self.__years_2_accounting_method_names:
                         raise RP2ValueError(f"{configuration_path}: section '{normalized_section_name}' found multiple times in configuration file")
                     self.__years_2_accounting_method_names = self._validate_accounting_method_section(ini_configuration[section_name], configuration_path)
+                elif normalized_section_name == Keyword.APPLICATION_METHODS.value:
+                    if self.__years_2_application_method_names:
+                        raise RP2ValueError(f"{configuration_path}: section '{normalized_section_name}' found multiple times in configuration file")
+                    self.__years_2_application_method_names = self._validate_year_2_method_section(
+                        ini_configuration[section_name], configuration_path, Keyword.APPLICATION_METHODS.value
+                    )
+                elif normalized_section_name == Keyword.TRANSFER_METHODS.value:
+                    if self.__years_2_transfer_method_names:
+                        raise RP2ValueError(f"{configuration_path}: section '{normalized_section_name}' found multiple times in configuration file")
+                    self.__years_2_transfer_method_names = self._validate_year_2_method_section(
+                        ini_configuration[section_name], configuration_path, Keyword.TRANSFER_METHODS.value
+                    )
                 else:
                     raise RP2ValueError(f"{configuration_path}: invalid section '{section_name}' found")
 
@@ -272,6 +288,9 @@ class Configuration:  # pylint: disable=too-many-public-methods
         return header_2_column
 
     def _validate_accounting_method_section(self, section: SectionProxy, configuration_path: str) -> Dict[int, str]:
+        return self._validate_year_2_method_section(section, configuration_path, "accounting method")
+
+    def _validate_year_2_method_section(self, section: SectionProxy, configuration_path: str, section_label: str) -> Dict[int, str]:
         if not section:
             raise RP2ValueError(f"{configuration_path}: section '{section.name}' cannot be empty")
         result: Dict[int, str] = {}
@@ -280,13 +299,13 @@ class Configuration:  # pylint: disable=too-many-public-methods
                 numeric_year: int = int(year.strip())
                 if numeric_year < MIN_DATE.year:
                     raise RP2ValueError(
-                        f"{configuration_path}: invalid year value in accounting method section (integer > {MIN_DATE.year} was expected): {year}"
+                        f"{configuration_path}: invalid year value in {section_label} section (integer > {MIN_DATE.year} was expected): {year}"
                     )
                 result[numeric_year] = method.strip()
             except ValueError as exc:
-                raise RP2ValueError(f"{configuration_path}: invalid year value in accounting method section (integer was expected): {year}") from exc
+                raise RP2ValueError(f"{configuration_path}: invalid year value in {section_label} section (integer was expected): {year}") from exc
             except TypeError as exc:
-                raise RP2ValueError(f"{configuration_path}: invalid year type in accounting method section (integer was expected): {year}") from exc
+                raise RP2ValueError(f"{configuration_path}: invalid year type in {section_label} section (integer was expected): {year}") from exc
         return result
 
     def __repr__(self) -> str:
@@ -334,6 +353,14 @@ class Configuration:  # pylint: disable=too-many-public-methods
     @property
     def years_2_accounting_method_names(self) -> Dict[int, str]:
         return self.__years_2_accounting_method_names
+
+    @property
+    def years_2_application_method_names(self) -> Dict[int, str]:
+        return self.__years_2_application_method_names
+
+    @property
+    def years_2_transfer_method_names(self) -> Dict[int, str]:
+        return self.__years_2_transfer_method_names
 
     def __get_table_constructor_argument_pack(self, data: List[Any], table_type: str, header: Dict[str, int]) -> Dict[str, Any]:
         if not isinstance(data, List):
