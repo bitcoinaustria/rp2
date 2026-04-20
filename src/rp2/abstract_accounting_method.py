@@ -144,6 +144,40 @@ class ChronologicalAcquiredLotCandidates(AbstractAcquiredLotCandidates):
     pass
 
 
+# Candidates container for pool-based accounting methods (running weighted-average cost
+# basis). The pool state lives on the container — one (qty, cost_total) per free-form pool_id
+# — so it shares the container's lifetime and cannot be aliased across runs. A single
+# `last_synced_index` cursor is enough because lots are walked in chronological order and
+# fanned into the appropriate pool during each sync call.
+#
+# The generic moving_average method uses a single conventional pool id; regime-aware methods
+# (e.g. moving_average_at) partition into multiple pool ids based on per-lot markers. The
+# container is agnostic about pool semantics — it only stores and returns the tuple.
+class PoolAcquiredLotCandidates(ChronologicalAcquiredLotCandidates):
+    def __init__(
+        self,
+        accounting_method: "AbstractAccountingMethod",
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+    ) -> None:
+        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount)
+        self.__pool_state: Dict[str, Tuple[RP2Decimal, RP2Decimal]] = {}
+        self.__last_synced_index: int = -1
+
+    def get_pool(self, pool_id: str) -> Tuple[RP2Decimal, RP2Decimal]:
+        return self.__pool_state.get(pool_id, (ZERO, ZERO))
+
+    def set_pool(self, pool_id: str, qty: RP2Decimal, cost_total: RP2Decimal) -> None:
+        self.__pool_state[pool_id] = (qty, cost_total)
+
+    @property
+    def last_synced_index(self) -> int:
+        return self.__last_synced_index
+
+    def set_last_synced_index(self, value: int) -> None:
+        self.__last_synced_index = value
+
+
 class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
     _accounting_method: "AbstractFeatureBasedAccountingMethod"
 

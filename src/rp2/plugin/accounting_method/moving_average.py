@@ -12,16 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional
 
 from rp2.abstract_accounting_method import (
     AbstractAcquiredLotCandidates,
     AbstractChronologicalAccountingMethod,
     AcquiredLotAndAmount,
     AcquiredLotCandidatesOrder,
+    PoolAcquiredLotCandidates,
 )
 from rp2.abstract_transaction import AbstractTransaction
+from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
+from rp2.rp2_error import RP2TypeError
+
+
+# Single conventional pool id used by the generic moving-average method. Regime-aware
+# methods (e.g. moving_average_at) use their own pool ids; this module is agnostic.
+_DEFAULT_POOL: str = "default"
 
 
 # Moving-average (weighted running-average) accounting. Generic — usable by any country whose
@@ -31,16 +39,16 @@ from rp2.rp2_decimal import ZERO, RP2Decimal
 # `AcquiredLotAndAmount`, so individual lots retain their own `fiat_in_with_fee` for other
 # consumers while `GainLoss.fiat_cost_basis` uses the pool average.
 #
-# Pool bookkeeping is per `AbstractAcquiredLotCandidates` instance — in practice one pool per
-# (asset, year-mapping) because the accounting engine creates a fresh candidates container
-# for each method entry. Disposals leave the running average unchanged (by construction:
-# subtracting `amount * avg` from cost_total while subtracting `amount` from qty preserves
-# the ratio). Only acquisitions move the average.
+# Pool bookkeeping lives on the `PoolAcquiredLotCandidates` container, not on the method —
+# this means the method is stateless and can be safely reused across compute_tax runs, and
+# pool state is naturally garbage-collected with its container. Disposals leave the running
+# average unchanged (by construction: subtracting `amount * avg` from cost_total while
+# subtracting `amount` from qty preserves the ratio). Only acquisitions move the average.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
-    def __init__(self) -> None:
-        super().__init__()
-        # key = id(lot_candidates); value = (pool_qty, pool_cost_total, last_synced_to_index)
-        self.__pool_state: Dict[int, Tuple[RP2Decimal, RP2Decimal, int]] = {}
+    def create_lot_candidates(
+        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+    ) -> PoolAcquiredLotCandidates:
+        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
 
     def lot_candidates_order(self) -> AcquiredLotCandidatesOrder:
         return AcquiredLotCandidatesOrder.OLDER_TO_NEWER
@@ -51,13 +59,17 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event_amount: RP2Decimal,
         taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
+        if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
+            raise RP2TypeError(
+                f"Internal error: moving_average expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}"
+            )
         self.__sync_pool(lot_candidates)
 
         fifo_result: Optional[AcquiredLotAndAmount] = super().seek_non_exhausted_acquired_lot(lot_candidates, taxable_event_amount, taxable_event)
         if fifo_result is None:
             return None
 
-        pool_qty, pool_cost_total, _ = self.__pool_state[id(lot_candidates)]
+        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
         pool_average: RP2Decimal = pool_cost_total / pool_qty if pool_qty > ZERO else ZERO
 
         # The engine consumes min(taxable_event_amount, fifo_result.amount) from the pool this
@@ -71,26 +83,25 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             unit_cost_basis_override=pool_average,
         )
 
-    def __sync_pool(self, lot_candidates: AbstractAcquiredLotCandidates) -> None:
-        key: int = id(lot_candidates)
-        pool_qty, pool_cost_total, last_synced = self.__pool_state.get(key, (ZERO, ZERO, -1))
-        current_to: int = lot_candidates.to_index
+    def __sync_pool(self, lot_candidates: PoolAcquiredLotCandidates) -> None:
+        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
+        last_synced: int = lot_candidates.last_synced_index
         lots = lot_candidates.acquired_lot_list
-        upper_bound: int = min(current_to, len(lots) - 1)
+        upper_bound: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(last_synced + 1, upper_bound + 1):
             lot = lots[i]
             pool_qty = pool_qty + lot.crypto_in
             pool_cost_total = pool_cost_total + lot.fiat_in_with_fee
-        self.__pool_state[key] = (pool_qty, pool_cost_total, upper_bound)
+        lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
+        lot_candidates.set_last_synced_index(upper_bound)
 
     def __deduct_from_pool(
         self,
-        lot_candidates: AbstractAcquiredLotCandidates,
+        lot_candidates: PoolAcquiredLotCandidates,
         amount: RP2Decimal,
         pool_average: RP2Decimal,
     ) -> None:
-        key: int = id(lot_candidates)
-        pool_qty, pool_cost_total, last_synced = self.__pool_state[key]
+        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
         pool_qty = pool_qty - amount
         pool_cost_total = pool_cost_total - amount * pool_average
-        self.__pool_state[key] = (pool_qty, pool_cost_total, last_synced)
+        lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
