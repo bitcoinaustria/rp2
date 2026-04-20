@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from datetime import date
-from typing import Dict, Optional, cast
+from typing import Dict, Optional, Set, cast
 
 from rp2.abstract_entry import AbstractEntry
 from rp2.abstract_transaction import AbstractTransaction
@@ -64,6 +64,7 @@ class InputData:
         self.__filtered_in_transaction_set: TransactionSet = self.__unfiltered_in_transaction_set.duplicate(from_date=from_date, to_date=to_date)
         self.__filtered_out_transaction_set: TransactionSet = self.__unfiltered_out_transaction_set.duplicate(from_date=from_date, to_date=to_date)
         self.__filtered_intra_transaction_set: TransactionSet = self.__unfiltered_intra_transaction_set.duplicate(from_date=from_date, to_date=to_date)
+        self.__intra_transaction_unique_ids: Set[str] = {cast(AbstractTransaction, entry).unique_id for entry in self.__unfiltered_intra_transaction_set}
 
         self.__from_date = from_date
         self.__to_date = to_date
@@ -150,6 +151,10 @@ class InputData:
     @property
     def in_transaction_2_actual_amount(self) -> Dict[InTransaction, RP2Decimal]:
         return self.__in_transaction_2_actual_amount
+
+    def is_intra_backed_artificial_in_transaction(self, in_transaction: InTransaction) -> bool:
+        InTransaction.type_check("in_transaction", in_transaction)
+        return in_transaction.from_lot is not None and in_transaction.unique_id.rsplit("/", 1)[0] in self.__intra_transaction_unique_ids
 
     @property
     def from_date(self) -> date:

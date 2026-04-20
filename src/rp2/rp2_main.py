@@ -129,11 +129,16 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
 
         accounting_engine: AccountingEngine = AccountingEngine(years_2_methods=years_2_accounting_methods)
 
-        use_per_wallet: bool = _uses_per_wallet_application(configuration)
-        transfer_semantics: AbstractAccountingMethod = _resolve_transfer_semantics(configuration, years_2_accounting_methods)
+        application_method_name: str = _resolve_application_method(configuration)
+        use_per_wallet: bool = application_method_name == "per_wallet"
+        transfer_semantics: Optional[AbstractAccountingMethod] = None
         if use_per_wallet:
+            transfer_semantics = _resolve_transfer_semantics(configuration, years_2_accounting_method_names)
             LOGGER.info("Application method: per_wallet (transfer semantics: %s)", type(transfer_semantics).__module__.rsplit(".", 1)[-1])
         else:
+            if configuration.years_2_transfer_method_names:
+                LOGGER.error("The 'transfer_methods' section is supported only with per_wallet application. Exiting...")
+                sys.exit(1)
             LOGGER.info("Application method: universal")
 
         LOGGER.info("Configuration file: %s", args.configuration_file)
@@ -163,7 +168,7 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
                 computed_data = compute_tax_per_wallet(
                     configuration=configuration,
                     accounting_engine=accounting_engine,
-                    transfer_semantics=transfer_semantics,
+                    transfer_semantics=cast(AbstractAccountingMethod, transfer_semantics),
                     universal_input_data=input_data,
                 )
             else:
@@ -242,12 +247,20 @@ def _find_and_run_report_generators(
         sys.exit(1)
 
 
-def _uses_per_wallet_application(configuration: Configuration) -> bool:
+def _resolve_application_method(configuration: Configuration) -> str:
     application_methods: Set[str] = set(configuration.years_2_application_method_names.values())
-    if not application_methods:
-        default: str = configuration.country.get_default_application_method()
-        return default == "per_wallet"
     allowed: Set[str] = configuration.country.get_application_methods()
+    selected_application_method: str = configuration.country.get_default_application_method()
+    if selected_application_method not in allowed:
+        LOGGER.error(
+            "Invalid default application method '%s' in country %s (allowed: %s)",
+            selected_application_method,
+            configuration.country.country_iso_code,
+            sorted(allowed),
+        )
+        sys.exit(1)
+    if not application_methods:
+        return selected_application_method
     for method in application_methods:
         if method not in allowed:
             LOGGER.error(
@@ -257,12 +270,19 @@ def _uses_per_wallet_application(configuration: Configuration) -> bool:
                 sorted(allowed),
             )
             sys.exit(1)
-    return "per_wallet" in application_methods
+    if len(application_methods) > 1:
+        LOGGER.error("Year-scoped application method transitions are not supported yet: configure a single application method for the whole run. Exiting...")
+        sys.exit(1)
+    return next(iter(application_methods))
+
+
+def _uses_per_wallet_application(configuration: Configuration) -> bool:
+    return _resolve_application_method(configuration) == "per_wallet"
 
 
 def _resolve_transfer_semantics(
     configuration: Configuration,
-    years_2_accounting_methods: AVLTree[int, AbstractAccountingMethod],
+    years_2_accounting_method_names: Dict[int, str],
 ) -> AbstractAccountingMethod:
     # Design note (per https://github.com/eprbell/rp2/issues/135, 2024-11-13):
     # transfer semantics is a separate knob from the accounting method; if the user
@@ -272,28 +292,29 @@ def _resolve_transfer_semantics(
     country: AbstractCountry = configuration.country
     allowed: Set[str] = country.get_transfer_methods()
     if years_2_transfer_method_names:
-        transfer_method_name: str = years_2_transfer_method_names[min(years_2_transfer_method_names)]
-        if transfer_method_name not in allowed:
-            LOGGER.error(
-                "Invalid transfer method '%s' in configuration (country %s allows: %s)",
-                transfer_method_name,
-                country.country_iso_code,
-                sorted(allowed),
-            )
+        transfer_methods: Set[str] = set(years_2_transfer_method_names.values())
+        for transfer_method_name in transfer_methods:
+            if transfer_method_name not in allowed:
+                LOGGER.error(
+                    "Invalid transfer method '%s' in configuration (country %s allows: %s)",
+                    transfer_method_name,
+                    country.country_iso_code,
+                    sorted(allowed),
+                )
+                sys.exit(1)
+        if len(transfer_methods) > 1:
+            LOGGER.error("Year-scoped transfer method transitions are not supported yet: configure a single transfer method for the whole run. Exiting...")
             sys.exit(1)
-        return _load_accounting_method(transfer_method_name)
+        return _load_accounting_method(next(iter(transfer_methods)))
     # Fall back to the accounting method of the earliest configured year.
-    earliest_method: Optional[AbstractAccountingMethod] = years_2_accounting_methods.find_max_value_less_than(MIN_DATE.year + 1)
-    if earliest_method is None:
-        return _load_accounting_method(country.get_default_transfer_method())
-    return earliest_method
+    if years_2_accounting_method_names:
+        return _load_accounting_method(years_2_accounting_method_names[min(years_2_accounting_method_names)])
+    return _load_accounting_method(country.get_default_transfer_method())
 
 
 def _load_accounting_method(accounting_method_name: str) -> AbstractAccountingMethod:
     try:
-        accounting_method_module: ModuleType = import_module(
-            f"{_ACCOUNTING_METHOD_PACKAGE}.{accounting_method_name}", package=_ACCOUNTING_METHOD_PACKAGE
-        )
+        accounting_method_module: ModuleType = import_module(f"{_ACCOUNTING_METHOD_PACKAGE}.{accounting_method_name}", package=_ACCOUNTING_METHOD_PACKAGE)
     except ModuleNotFoundError:
         LOGGER.error("Invalid/unsupported method: %s", accounting_method_name)
         sys.exit(1)

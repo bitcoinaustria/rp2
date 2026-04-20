@@ -15,7 +15,7 @@
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Set, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 from rp2.abstract_country import AbstractCountry
 from rp2.computed_data import ComputedData
@@ -240,8 +240,12 @@ class Generator(AbstractODSGenerator):
             # process in-flow transactions to collect the fiat cost basis data.
             for current_transaction in computed_data.in_transaction_set:
                 in_transaction = cast(InTransaction, current_transaction)
-                sold_percent: RP2Decimal = computed_data.get_in_lot_sold_percentage(in_transaction)
-                transaction_cost_basis: RP2Decimal = in_transaction.fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
+                actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
+                if actual_amount is not None:
+                    transaction_cost_basis = (in_transaction.fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
+                else:
+                    sold_percent = computed_data.get_in_lot_sold_percentage(in_transaction)
+                    transaction_cost_basis = in_transaction.fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
 
                 if transaction_cost_basis > ZERO:
                     value = asset_cost_bases.setdefault(asset, ZERO)

@@ -129,6 +129,8 @@ class BalanceSet:
                 break
             if isinstance(transaction, InTransaction):
                 in_transaction: InTransaction = transaction
+                if self.__input_data.is_intra_backed_artificial_in_transaction(in_transaction):
+                    continue
                 to_account = Account(in_transaction.exchange, in_transaction.holder)
                 acquired_balances[to_account] = acquired_balances.get(to_account, ZERO) + in_transaction.crypto_in
                 final_balances[to_account] = final_balances.get(to_account, ZERO) + in_transaction.crypto_in

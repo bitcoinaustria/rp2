@@ -15,14 +15,18 @@
 from datetime import date
 from typing import Dict, List, Optional
 
+from rp2.abstract_accounting_method import (
+    AbstractAccountingMethod,
+    AbstractAcquiredLotCandidates,
+    AcquiredLotAndAmount,
+)
 from rp2.configuration import Configuration
-from rp2.abstract_accounting_method import AbstractAccountingMethod, AbstractAcquiredLotCandidates, AcquiredLotAndAmount
 from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
 from rp2.out_transaction import OutTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
-from rp2.rp2_error import RP2ValueError, RP2TypeError
+from rp2.rp2_error import RP2TypeError, RP2ValueError
 from rp2.transaction_set import TransactionSet
 
 
@@ -72,7 +76,7 @@ class TransferAnalyzer:
         transfer_semantics: AbstractAccountingMethod,
         universal_input_data: InputData,
         skip_transfer_pointers: bool = False,
-        use_local_artificial_ids: bool = False
+        use_local_artificial_ids: bool = False,
     ):
         self.__configuration = Configuration.type_check("configuration", configuration)
         if not isinstance(transfer_semantics, AbstractAccountingMethod):
@@ -96,6 +100,11 @@ class TransferAnalyzer:
         else:
             artificial_id = self.__configuration.get_new_artificial_id()
 
+        carried_fraction: RP2Decimal = amount / from_in_transaction.crypto_in
+        carried_fiat_in_no_fee: RP2Decimal = from_in_transaction.fiat_in_no_fee * carried_fraction
+        carried_fiat_fee: RP2Decimal = from_in_transaction.fiat_fee * carried_fraction
+        carried_fiat_in_with_fee: RP2Decimal = from_in_transaction.fiat_in_with_fee * carried_fraction
+
         # Find cost basis timestamp.
         current_from_in_transaction: Optional[InTransaction] = from_in_transaction
         cost_basis_timestamp_string = from_in_transaction.timestamp.isoformat()
@@ -114,9 +123,9 @@ class TransferAnalyzer:
             transaction_type=from_in_transaction.transaction_type.value,
             crypto_in=amount,
             spot_price=from_in_transaction.spot_price,
-            # TODO: crypto_fee should be split proportionally to the crypto_in.
-            crypto_fee=ZERO,
-            # TODO: initialize fiat fields...
+            fiat_in_no_fee=carried_fiat_in_no_fee,
+            fiat_in_with_fee=carried_fiat_in_with_fee,
+            fiat_fee=carried_fiat_fee,
             row=artificial_id,
             unique_id=f"{transfer_transaction.unique_id}/{artificial_id}",
             notes=(
