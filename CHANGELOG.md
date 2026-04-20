@@ -14,6 +14,17 @@
 
 # RP2 Change Log
 
+# Unreleased (bitcoinaustria fork)
+The following entries are in the Kassiber-maintained Austrian fork at `bitcoinaustria/rp2` and are not yet upstream. Each phase is a standalone commit.
+* Phase 1 — added Austrian country plugin (`rp2_at`, `src/rp2/plugin/country/at.py`). Thin `AbstractCountry` subclass; `get_long_term_capital_gain_period` returns `sys.maxsize` (Austria has no day-threshold). Additive; zero core changes.
+* Phase 2 — added generic `moving_average` accounting method and a `unit_cost_basis_override` field on `AcquiredLotAndAmount`. Threads the override through `AccountingEngine.TaxableEventAndAcquiredLot` and `GainLoss.fiat_cost_basis`, so pool-based methods can surface a running pool average per disposal without invalidating the FIFO lot-pairing audit trail. Also adds an optional `taxable_event` parameter to `AbstractAccountingMethod.seek_non_exhausted_acquired_lot` so regime-aware methods can route on disposal context. Backward-compatible with all existing methods.
+* Phase 3 — added `moving_average_at` accounting method. Reads `at_regime=alt|neu` from `transaction.notes` to split Altvermögen (FIFO, per-lot basis) from Neuvermögen (moving average, pool-wide basis). Date fallback: lots acquired on/before 2021-02-28 Europe/Vienna are classified Altvermögen, else Neuvermögen.
+* Phase 4 — added Neuvermögen swap neutrality via `at_swap_link=<id>` marker. Outgoing leg on a Neu disposal emits a zero-gain `GainLoss` (cost basis = proceeds) and depletes the pool at the running average, preserving pool state across swaps. Alt swaps deliberately realize as normal disposals. The incoming leg's basis carry is Kassiber's responsibility.
+* Phase 5 — added `tax_report_at` generator. Emits a FinanzOnline-aligned summary with Kennzahlen 172/174/175/176/801; 171/173 are transcription placeholders for domestic (CASP-withheld) income. Swaps appear on a dedicated tax-neutral sheet.
+* Phase 6 — added `de_AT` localization catalog for the Austrian report. `AT.get_default_generation_language` returns `de_AT` so FinanzOnline transcription uses the same language as the BMF form.
+* Phase 7 — review followups. `at_pool=<id>` marker implemented (partitions the Neu moving-average pool); removed silent "alt-first" fallback on unmarked mixed-pool disposals (raises `RP2ValueError`); empty `at_swap_link=` now rejected; `rp2_full_report` dropped from AT default generators (its long/short split is misleading when `long_term_capital_gain_period = sys.maxsize`); Kz 175 (Einkünfte aus Überlassung) routed from STAKING and INTEREST transaction types; sharpened the Kassiber handoff contract in AGENTS.md.
+* Phase 8 — refactored pool bookkeeping off the accounting method onto a new `PoolAcquiredLotCandidates` subclass of `ChronologicalAcquiredLotCandidates`. The method becomes stateless; pool state shares the container's lifetime. Removes the `id(lot_candidates)`-keyed side dict that would have been fragile across method instance reuse. Documented in `README.dev.md` as the third accounting-method flavor.
+
 # 1.7.2
 * Added new LOST transaction type to model losses from bankruptcy, theft, etc.
 * Added LOFO accounting method (lowest in, first out)
