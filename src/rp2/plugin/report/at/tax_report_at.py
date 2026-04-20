@@ -23,7 +23,7 @@ import ezodf
 from rp2.abstract_country import AbstractCountry
 from rp2.abstract_report_generator import AbstractReportGenerator
 from rp2.computed_data import ComputedData
-from rp2.configuration import MIN_DATE
+from rp2.entry_types import TransactionType
 from rp2.gain_loss import GainLoss
 from rp2.localization import _
 from rp2.logger import create_logger
@@ -32,6 +32,7 @@ from rp2.plugin.country.at import (
     REGIME_NEU,
     classify_lot_regime,
     has_swap_link,
+    swap_link_id,
 )
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2TypeError
@@ -40,17 +41,26 @@ LOGGER: logging.Logger = create_logger("tax_report_at")
 
 # Category keys used to bucket each GainLoss row into its reporting lane. These are internal
 # identifiers, not user-facing strings — they are not localized.
-_CAT_INCOME: str = "income"
+_CAT_INCOME_172: str = "income_172"
+_CAT_INCOME_175: str = "income_175"
 _CAT_NEU_GAIN: str = "neu_gain"
 _CAT_NEU_LOSS: str = "neu_loss"
 _CAT_NEU_SWAP: str = "neu_swap"
 _CAT_ALT_SPEKULATION: str = "alt_spekulation"
 _CAT_ALT_TAXFREE: str = "alt_taxfree"
 
+# Austrian BMF income classification of crypto earn events.
+# Kz 175 (Einkünfte aus der Überlassung): lending/staking — user gives crypto to a third
+# party for a return. Kz 172 (Laufende Einkünfte): everything else that rp2 models as an earn
+# event (mining, airdrops, hardforks, generic income, wages-in-crypto fallback).
+_KZ_175_TRANSACTION_TYPES: frozenset[TransactionType] = frozenset({TransactionType.STAKING, TransactionType.INTEREST})
+
 
 def _classify(gain_loss: GainLoss) -> str:
     if gain_loss.acquired_lot is None:
-        return _CAT_INCOME
+        if gain_loss.taxable_event.transaction_type in _KZ_175_TRANSACTION_TYPES:
+            return _CAT_INCOME_175
+        return _CAT_INCOME_172
     regime: str = classify_lot_regime(gain_loss.acquired_lot)
     if regime == REGIME_NEU:
         if has_swap_link(gain_loss.taxable_event):
@@ -105,8 +115,10 @@ class Generator(AbstractReportGenerator):
                 gain_loss: GainLoss = cast(GainLoss, entry)
                 category: str = _classify(gain_loss)
                 rows[category].append((asset, gain_loss))
-                if category == _CAT_INCOME:
-                    totals[_CAT_INCOME] = totals[_CAT_INCOME] + gain_loss.taxable_event_fiat_amount_with_fee_fraction
+                if category == _CAT_INCOME_172:
+                    totals[_CAT_INCOME_172] = totals[_CAT_INCOME_172] + gain_loss.taxable_event_fiat_amount_with_fee_fraction
+                elif category == _CAT_INCOME_175:
+                    totals[_CAT_INCOME_175] = totals[_CAT_INCOME_175] + gain_loss.taxable_event_fiat_amount_with_fee_fraction
                 elif category == _CAT_NEU_GAIN:
                     totals[_CAT_NEU_GAIN] = totals[_CAT_NEU_GAIN] + gain_loss.fiat_gain
                 elif category == _CAT_NEU_LOSS:
@@ -119,7 +131,7 @@ class Generator(AbstractReportGenerator):
                     totals[_CAT_ALT_TAXFREE] = totals[_CAT_ALT_TAXFREE] + gain_loss.fiat_gain
                 # _CAT_NEU_SWAP deliberately contributes nothing to taxable totals.
 
-        accounting_method: str = years_2_accounting_method_names[MIN_DATE.year] if len(years_2_accounting_method_names) == 1 else "mixed"
+        accounting_method: str = next(iter(years_2_accounting_method_names.values())) if len(years_2_accounting_method_names) == 1 else "mixed"
         output_file_path: Path = Path(output_dir_path) / f"{output_file_prefix}{accounting_method}_{self.OUTPUT_FILE}"
         if output_file_path.exists():
             output_file_path.unlink()
@@ -130,7 +142,8 @@ class Generator(AbstractReportGenerator):
         self._add_disposals_sheet(doc, _("Neuvermoegen Disposals"), rows[_CAT_NEU_GAIN] + rows[_CAT_NEU_LOSS], include_holding_days=False)
         self._add_disposals_sheet(doc, _("Altvermoegen Disposals"), rows[_CAT_ALT_SPEKULATION] + rows[_CAT_ALT_TAXFREE], include_holding_days=True)
         self._add_swaps_sheet(doc, rows[_CAT_NEU_SWAP])
-        self._add_income_sheet(doc, rows[_CAT_INCOME])
+        self._add_income_sheet(doc, _("Income (Kz 172)"), rows[_CAT_INCOME_172])
+        self._add_income_sheet(doc, _("Income (Kz 175)"), rows[_CAT_INCOME_175])
         doc.save()
         LOGGER.info("Plugin '%s' output: %s", __name__, Path(output_file_path).resolve())
 
@@ -158,8 +171,9 @@ class Generator(AbstractReportGenerator):
             (_("Period to"), _fmt_date(to_date)),
             ("", ""),
             (_("=== Kennzahlen Totals (EUR) ==="), ""),
-            (_("Kz 172 - Laufende Einkuenfte (foreign)"), _fmt_eur(totals[_CAT_INCOME])),
+            (_("Kz 172 - Laufende Einkuenfte (foreign)"), _fmt_eur(totals[_CAT_INCOME_172])),
             (_("Kz 174 - Realized gains Neuvermoegen (foreign)"), _fmt_eur(totals[_CAT_NEU_GAIN])),
+            (_("Kz 175 - Einkuenfte aus Ueberlassung (foreign)"), _fmt_eur(totals[_CAT_INCOME_175])),
             (_("Kz 176 - Losses Neuvermoegen (foreign, positive magnitude)"), _fmt_eur(totals[_CAT_NEU_LOSS])),
             (_("Kz 801 - Spekulationsgeschaefte (Altvermoegen < 1 year, net)"), _fmt_eur(totals[_CAT_ALT_SPEKULATION])),
             ("", ""),
@@ -173,7 +187,9 @@ class Generator(AbstractReportGenerator):
                     "This report is an automated summary of imported transactions under the assumption that "
                     "all disposals are foreign (auslaendisch). Kennzahlen 171/173 (inlaendisch, CASP-withheld) "
                     "are left blank and must be transcribed manually from the domestic provider's own tax "
-                    "statement. Have a Steuerberater review this output before filing on FinanzOnline."
+                    "statement. Kz 175 income is routed from STAKING and INTEREST transaction types only; "
+                    "reclassify other rewards in Kassiber if your case requires it. Have a Steuerberater "
+                    "review this output before filing on FinanzOnline."
                 ),
                 "",
             ),
@@ -191,8 +207,9 @@ class Generator(AbstractReportGenerator):
         rows: List[List[str]] = [
             [_("Kennzahl"), _("Label"), _("Value (EUR)")],
             ["", "Einkuenfte aus Kapitalvermoegen (auslaendisch)", ""],
-            ["172", "Laufende Einkuenfte", _fmt_eur(totals[_CAT_INCOME])],
+            ["172", "Laufende Einkuenfte", _fmt_eur(totals[_CAT_INCOME_172])],
             ["174", "Ueberschuesse aus realisierten Wertsteigerungen", _fmt_eur(totals[_CAT_NEU_GAIN])],
+            ["175", "Einkuenfte aus der Ueberlassung von Kryptowaehrungen", _fmt_eur(totals[_CAT_INCOME_175])],
             ["176", "Verluste", _fmt_eur(totals[_CAT_NEU_LOSS])],
             ["", "", ""],
             ["", "Einkuenfte aus Kapitalvermoegen (inlaendisch, CASP-withheld)", ""],
@@ -264,8 +281,7 @@ class Generator(AbstractReportGenerator):
         ]
         rows: List[List[str]] = [header]
         for asset, gl in entries:
-            notes: str = gl.taxable_event.notes or ""
-            swap_id: str = self._extract_swap_id(notes)
+            link_id: str = swap_link_id(gl.taxable_event) or ""
             rows.append(
                 [
                     _fmt_date(gl.taxable_event.timestamp),
@@ -274,7 +290,7 @@ class Generator(AbstractReportGenerator):
                     _fmt_eur(gl.taxable_event.spot_price),
                     _fmt_eur(gl.taxable_event_fiat_amount_with_fee_fraction),
                     _fmt_eur(gl.fiat_cost_basis),
-                    swap_id,
+                    link_id,
                     gl.taxable_event.unique_id or "",
                 ]
             )
@@ -283,7 +299,7 @@ class Generator(AbstractReportGenerator):
         for row_index, values in enumerate(rows):
             self._set_row(sheet, row_index, values)
 
-    def _add_income_sheet(self, doc: Any, entries: List[Tuple[str, GainLoss]]) -> None:
+    def _add_income_sheet(self, doc: Any, sheet_name: str, entries: List[Tuple[str, GainLoss]]) -> None:
         header: List[str] = [
             _("Receipt date"),
             _("Asset"),
@@ -304,22 +320,7 @@ class Generator(AbstractReportGenerator):
                     gl.taxable_event.unique_id or "",
                 ]
             )
-        sheet: Any = ezodf.Sheet(_("Income (Kz 172)"), size=(max(1, len(rows)), len(header)))
+        sheet: Any = ezodf.Sheet(sheet_name, size=(max(1, len(rows)), len(header)))
         doc.sheets += sheet
         for row_index, values in enumerate(rows):
             self._set_row(sheet, row_index, values)
-
-    @staticmethod
-    def _extract_swap_id(notes: str) -> str:
-        # notes carries `at_swap_link=<id>` somewhere — extract the <id> substring.
-        marker: str = "at_swap_link="
-        idx: int = notes.find(marker)
-        if idx < 0:
-            return ""
-        rest: str = notes[idx + len(marker) :]
-        # id ends at whitespace or end-of-string.
-        for sep in (" ", "\t", "\n", ","):
-            cut: int = rest.find(sep)
-            if cut >= 0:
-                rest = rest[:cut]
-        return rest

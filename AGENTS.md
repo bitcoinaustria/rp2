@@ -30,17 +30,27 @@ The implementation proceeds in phases, each a reviewable commit. Core changes ar
 1. **Phase 1 — Country skeleton.** `src/rp2/plugin/country/at.py`, `rp2_at` entry, FIFO-only. Pure additive plugin, zero core changes.
 2. **Phase 2 — Moving-average engine.** `moving_average_at` accounting method. Expected minimal core touch: let the accounting method return an optional per-disposal cost-basis override alongside the selected lot (e.g. an extra field on `AcquiredLotAndAmount`), and thread it through `GainLoss` construction so the pool's running average overrides the per-lot cost basis without invalidating the lot-pairing audit trail.
 3. **Phase 3 — Alt/Neu split.** The Austrian method reads an `at_regime=alt|neu` marker from `transaction.notes`. Altvermögen path: per-lot FIFO + 365-day Spekulationsfrist. Neuvermögen path: moving average per pool. Both paths emit standard `GainLoss` objects tied to real `InTransaction` lots.
-4. **Phase 4 — Swap neutrality.** Express paired crypto-to-crypto swaps through existing transaction types plus a convention marker in `notes` (e.g. `at_swap_link=<id>`). The Austrian method detects the linkage and carries cost basis across legs without realizing a gain.
-5. **Phase 5 — E 1kv report generator.** `src/rp2/plugin/report/at/tax_report_at.py` + ODS template at `src/rp2/plugin/report/data/at/`. Emits Kennzahlen 171/172/173/174/175/176 plus Altvermögen-Spekulation table.
-6. **Phase 6 — `de` localization.** `pybabel init -l de` + translate report strings.
+4. **Phase 4 — Swap neutrality (outgoing side only on RP2).** Paired crypto-to-crypto swaps use `at_swap_link=<id>` in notes. The Austrian method emits a zero-gain `GainLoss` on the outgoing Neu leg and depletes the pool at the running average. The incoming leg's basis carry is Kassiber's responsibility (see the handoff contract above). Until Kassiber implements basis carry + paired emission, this phase is considered incomplete end-to-end.
+5. **Phase 5 — E 1kv report generator.** `src/rp2/plugin/report/at/tax_report_at.py`. Emits Kennzahlen 172/174/175/176/801 for foreign (auslaendisch) provider flows; 171/173 are transcription placeholders because RP2 cannot compute CASP-withheld domestic income. Kz 175 is routed from STAKING/INTEREST transaction types; 172 catches the remaining earn-typed events. Sheet output is built directly with `ezodf.newdoc` — a template-based rewrite using `AbstractODSGenerator` is tracked as an architectural follow-up.
+6. **Phase 6 — `de_AT` localization.** `pybabel init -l de_AT` + translate AT-specific report strings; generic `rp2_full_report` strings are deliberately left untranslated because `rp2_full_report` is not in AT's default generator set (its long/short-term split assumes a day-threshold, which AT disables).
 
 ## Austrian-specific conventions
 
-- **Pool identity** for moving average is carried on individual transactions via an `at_pool=<id>` marker in `notes`. RP2 is agnostic about the pool's meaning — Kassiber decides whether a pool is one wallet, a group of wallets, or the user's entire holdings. If the marker is absent, RP2 falls back to a single `"default"` pool.
-- **Regime classification** likewise comes in via `notes`: `at_regime=alt` or `at_regime=neu`. If absent, the AT method classifies by acquisition date at the 2021-03-01 cutoff (Europe/Vienna).
-- **Swap linkage** is carried via `linked_unique_id` on both legs of a matched crypto-to-crypto swap.
+All markers are carried in the `notes` field of `InTransaction` / `OutTransaction`. No schema changes — this is a deliberate tradeoff to keep the Austrian plugin additive and upstream-proposable. Multiple markers can coexist on the same transaction separated by whitespace (or any of ` \t\n,`). Kassiber is responsible for emitting these markers; RP2 only interprets them.
 
-These conventions keep RP2's public types almost unchanged, so the Austrian path is close to an additive overlay.
+| Marker | Shape | Who reads it | What happens |
+| --- | --- | --- | --- |
+| `at_regime=alt` / `at_regime=neu` | flag, no id | `moving_average_at`, `tax_report_at` | Forces the regime for the lot or disposal, overriding the 2021-03-01 Europe/Vienna date cutoff. |
+| `at_pool=<id>` | key=value, id is free-form | `moving_average_at` (Neu only) | Partitions the Neuvermögen moving-average pool. Lots and disposals with the same `<id>` share one running average. Absent marker → `"default"` pool. Ignored for Alt (universal FIFO). |
+| `at_swap_link=<id>` | key=value, id required non-empty | `moving_average_at` (Neu only), `tax_report_at` | Marks one leg of a matched crypto-to-crypto swap. On Neu disposals, forces cost basis = proceeds → zero gain. On Alt disposals, the marker is **ignored** (Austrian law treats Alt swaps as regime-breaking taxable disposals). |
+
+**Disambiguation.** A disposal with no `at_regime` marker is routed by lot availability: only Alt available → consume Alt; only Neu available → consume Neu. If both regimes have lots for the disposal's pool, RP2 raises `RP2ValueError` — Kassiber must tag the disposal. There is no silent "Alt first" preference.
+
+**Swap carryover contract (Kassiber's responsibility).** The outgoing leg is handled fully on RP2's side: detected by `at_swap_link=<id>` on the `OutTransaction`, emitted as a zero-gain `GainLoss`, pool depleted at the running average. The incoming leg is Kassiber's job: for each matched pair, Kassiber must synthesize the destination asset's `InTransaction` with `fiat_in_with_fee = outgoing_amount * neu_pool_avg_at_swap_time` so the basis carries across. RP2 does **not** perform cross-asset validation — it trusts the marker. Unmatched or uni-directional `at_swap_link` markers will silently produce zero-gain rows on the outgoing side without a corresponding basis carry on the incoming side; Kassiber is expected to pre-validate pairing before emission.
+
+**Empty-id rejection.** `at_swap_link=` with no value after the `=` raises `RP2ValueError` — it almost always indicates a Kassiber bug (forgetting to interpolate the id).
+
+These conventions keep RP2's public types unchanged, so the Austrian path is an additive overlay.
 
 ## Design rules (from [README.dev.md](README.dev.md))
 
@@ -90,7 +100,8 @@ LOG_LEVEL=DEBUG rp2_at -o output -p at_example_ config/crypto_example.ini input/
 
 ## Known gaps and non-goals
 
-- Austrian moving-average output is under active development; until Phase 3 lands, `rp2_at` runs only FIFO and is not filing-ready for Neuvermögen.
-- Crypto-to-crypto swap neutrality (§ 27b Abs 3 Z 2) ships in Phase 4; before that, swaps processed through the Austrian plugin will incorrectly realize gains/losses.
-- E 1kv report output ships in Phase 5; until then, users export via `rp2_full_report` and reformat manually.
+- **Swap neutrality is only half-implemented end-to-end.** The rp2 side emits a zero-gain `GainLoss` on the outgoing Neu leg and keeps the pool average invariant (Phase 4 complete on rp2). The incoming side — pairing legs across assets and synthesizing the destination `InTransaction` with the carried basis — lives in Kassiber and is not implemented yet. Until Kassiber lands that, Austrian swap handling is dark-launched.
+- **Kassiber-side alignment is outstanding.** Kassiber's `tax_policy.py` still advertises `fifo` + generic reports for AT and rejects Austrian profiles in tests. The marker emission layer (`at_regime`, `at_pool`, `at_swap_link`) does not exist on the Kassiber side. Lifting the rejection guard without these changes would silently route AT through Kassiber's stale defaults instead of rp2's Austrian plugin.
+- **Report template.** `tax_report_at` builds sheets programmatically instead of using an ODS template under `plugin/report/data/at/`. This works but deviates from the rp2 plugin convention; a rewrite on `AbstractODSGenerator` is a follow-up.
+- **Kz 171/173 (inländisch, CASP-withheld)** are transcription placeholders — the numbers come from the domestic provider's own Steuerbescheinigung, not from the imported transaction feed.
 - This fork does **not** plan to host FinanzOnline filing, Regelbesteuerungsoption computation, Betriebsvermögen handling, NFT/asset-backed-token treatment, or multi-year crypto loss carryforward — per Kassiber scope.

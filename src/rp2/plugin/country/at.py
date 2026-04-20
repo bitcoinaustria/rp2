@@ -37,8 +37,29 @@ _REGIME_MARKER_NEU: str = "at_regime=neu"
 # accounting method and the report plugin depend on this marker; keep it in one place.
 AT_SWAP_MARKER: str = "at_swap_link="
 
+# Pool identity marker (§ 2 KryptowährungsVO: moving average is applied per pool). Kassiber
+# decides what a pool is (single wallet, wallet group, whole-user-holdings). If the marker is
+# absent, the AT method buckets lots/disposals into AT_DEFAULT_POOL, so single-pool users do
+# not have to emit the marker.
+AT_POOL_MARKER: str = "at_pool="
+AT_DEFAULT_POOL: str = "default"
+
 # Spekulationsfrist threshold for Altvermögen disposals (private-investor § 31 regime).
 AT_SPEKULATIONSFRIST_DAYS: int = 365
+
+
+def _marker_value(notes: Optional[str], marker: str) -> Optional[str]:
+    if not notes:
+        return None
+    idx: int = notes.find(marker)
+    if idx < 0:
+        return None
+    rest: str = notes[idx + len(marker):]
+    for sep in (" ", "\t", "\n", ","):
+        cut: int = rest.find(sep)
+        if cut >= 0:
+            rest = rest[:cut]
+    return rest
 
 
 def _regime_from_notes(notes: Optional[str]) -> Optional[str]:
@@ -74,7 +95,28 @@ def explicit_event_regime(event: Optional[AbstractTransaction]) -> str:
     return tagged
 
 
+def pool_id_from_notes(notes: Optional[str]) -> str:
+    value: Optional[str] = _marker_value(notes, AT_POOL_MARKER)
+    if value is None or value == "":
+        return AT_DEFAULT_POOL
+    return value
+
+
+def swap_link_id(event: Optional[AbstractTransaction]) -> Optional[str]:
+    # Returns the swap-link id if the marker is present AND non-empty. Returns None both for
+    # "marker absent" and "marker present but empty" — callers that need to distinguish the
+    # two cases use `has_swap_link` first and then validate the id.
+    if event is None:
+        return None
+    value: Optional[str] = _marker_value(event.notes, AT_SWAP_MARKER)
+    if value is None or value == "":
+        return None
+    return value
+
+
 def has_swap_link(event: Optional[AbstractTransaction]) -> bool:
+    # True iff the literal `at_swap_link=` substring appears in notes, regardless of id value.
+    # Use this to decide "is this intended as a swap?" then validate the id with swap_link_id.
     if event is None or not event.notes:
         return False
     return AT_SWAP_MARKER in event.notes
@@ -105,10 +147,13 @@ class AT(AbstractCountry):
         return {"fifo", "moving_average", "moving_average_at"}
 
     # Default set of generators to use if the user doesn't specify them on the command line.
+    # `rp2_full_report` is intentionally NOT in the default set: its long/short split relies on
+    # `get_long_term_capital_gain_period()`, which we disable (sys.maxsize) because Austria has
+    # no generic day-threshold. Including it here would emit a misleading "all short-term"
+    # report for Altvermögen. Users can still request it explicitly via `-g rp2_full_report`.
     def get_report_generators(self) -> Set[str]:
         return {
             "open_positions",
-            "rp2_full_report",
             "at.tax_report_at",
         }
 

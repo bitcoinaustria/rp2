@@ -155,6 +155,7 @@ class TestTaxReportAT(unittest.TestCase):
                 "Altvermoegen Disposals",
                 "Swaps (Neu, tax-neutral)",
                 "Income (Kz 172)",
+                "Income (Kz 175)",
             },
         )
 
@@ -228,6 +229,66 @@ class TestTaxReportAT(unittest.TestCase):
         # Header row + 1 data row.
         status_col: int = alt_sheet.ncols() - 1
         self.assertEqual(alt_sheet[1, status_col].value, "TAXABLE (Kz 801)")
+
+    def test_staking_income_routed_to_kz_175(self) -> None:
+        # A STAKING in-transaction is an earn event. The AT report must route it to Kz 175
+        # (Einkünfte aus Überlassung), not Kz 172, so the BMF bucketing is accurate.
+        staking_tx: InTransaction = InTransaction(
+            self._configuration,
+            "2023-04-01 00:00:00 +0000",
+            _ASSET,
+            "Coinbase",
+            "Bob",
+            "STAKING",
+            _rp2_decimal("200"),
+            _rp2_decimal("0.25"),
+            fiat_fee=_rp2_decimal("0"),
+            row=1,
+        )
+        in_set: TransactionSet = TransactionSet(self._configuration, "IN", _ASSET)
+        in_set.add_entry(staking_tx)
+        out_set: TransactionSet = TransactionSet(self._configuration, "OUT", _ASSET)
+        intra_set: TransactionSet = TransactionSet(self._configuration, "INTRA", _ASSET)
+        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set)
+        computed: ComputedData = compute_tax(self._configuration, self._make_engine(), input_data)
+        path: Path = self._run_generator({_ASSET: computed})
+        doc: Any = ezodf.opendoc(str(path))
+        # Kz 175 = 0.25 * 200 = 50.00; Kz 172 should be 0.
+        row_175: int = self._find_row_with_label(doc, "FinanzOnline", "175")
+        self.assertEqual(self._sheet_cell(doc, "FinanzOnline", row_175, 2), "50.00")
+        row_172: int = self._find_row_with_label(doc, "FinanzOnline", "172")
+        self.assertEqual(self._sheet_cell(doc, "FinanzOnline", row_172, 2), "0.00")
+        # The event appears on the Kz 175 income sheet, not the Kz 172 one.
+        kz175_sheet: Any = doc.sheets["Income (Kz 175)"]
+        self.assertEqual(kz175_sheet[1, 1].value, _ASSET)
+        self.assertEqual(kz175_sheet[1, 4].value, "staking")
+
+    def test_mining_income_routed_to_kz_172(self) -> None:
+        # A MINING in-transaction stays on Kz 172 (Laufende Einkünfte).
+        mining_tx: InTransaction = InTransaction(
+            self._configuration,
+            "2023-04-01 00:00:00 +0000",
+            _ASSET,
+            "Coinbase",
+            "Bob",
+            "MINING",
+            _rp2_decimal("200"),
+            _rp2_decimal("0.5"),
+            fiat_fee=_rp2_decimal("0"),
+            row=1,
+        )
+        in_set: TransactionSet = TransactionSet(self._configuration, "IN", _ASSET)
+        in_set.add_entry(mining_tx)
+        out_set: TransactionSet = TransactionSet(self._configuration, "OUT", _ASSET)
+        intra_set: TransactionSet = TransactionSet(self._configuration, "INTRA", _ASSET)
+        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set)
+        computed: ComputedData = compute_tax(self._configuration, self._make_engine(), input_data)
+        path: Path = self._run_generator({_ASSET: computed})
+        doc: Any = ezodf.opendoc(str(path))
+        row_172: int = self._find_row_with_label(doc, "FinanzOnline", "172")
+        self.assertEqual(self._sheet_cell(doc, "FinanzOnline", row_172, 2), "100.00")
+        row_175: int = self._find_row_with_label(doc, "FinanzOnline", "175")
+        self.assertEqual(self._sheet_cell(doc, "FinanzOnline", row_175, 2), "0.00")
 
     def test_altvermoegen_over_1_year_is_tax_free(self) -> None:
         # Buy 2019-01-01 (alt); sell 2023-06-01 → > 1 year → tax-free (not in Kz 801).

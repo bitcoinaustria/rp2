@@ -28,6 +28,7 @@ from rp2.out_transaction import OutTransaction
 from rp2.plugin.accounting_method.moving_average_at import AccountingMethod
 from rp2.plugin.country.at import AT
 from rp2.rp2_decimal import RP2Decimal
+from rp2.rp2_error import RP2ValueError
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
 
@@ -189,9 +190,9 @@ class TestMovingAverageAT(unittest.TestCase):
         # Neu pool: (1+1, 100+300, avg 200). Cost basis 0.5 * 200 = 100.
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")
 
-    def test_default_unmarked_disposal_prefers_alt(self) -> None:
-        # With both Alt and Neu lots and no explicit marker, the taxpayer-friendly default
-        # picks the oldest alt lot (alt > 1 year is tax-free so spending alt first is optimal).
+    def test_unmarked_disposal_with_mixed_pools_raises(self) -> None:
+        # Both Alt and Neu lots available, disposal unmarked → ambiguity. The AT method
+        # refuses to silently pick one regime over the other; Kassiber must disambiguate.
         in_txs = [
             self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="100"),  # alt
             self._buy(row=2, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="300"),  # neu
@@ -199,11 +200,8 @@ class TestMovingAverageAT(unittest.TestCase):
         out_txs = [
             self._sell(row=3, timestamp="2023-06-01 00:00:00 +0000", crypto_out="0.5", spot_price="500"),
         ]
-        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
-        self.assertEqual(len(gains), 1)
-        assert gains[0].acquired_lot is not None
-        self.assertEqual(gains[0].acquired_lot.row, 1)
-        self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")  # alt own cost: 0.5 * 100
+        with self.assertRaisesRegex(RP2ValueError, "Ambiguous Austrian disposal"):
+            self._compute(in_txs, out_txs)
 
     def test_default_unmarked_disposal_falls_back_to_neu_when_no_alt(self) -> None:
         in_txs = [
@@ -289,6 +287,49 @@ class TestMovingAverageAT(unittest.TestCase):
         # Alt disposal with lot's own cost basis: 0.5 * 100 = 50. Proceeds 250 → gain 200.
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")
         self._assert_decimal_equal(gains[0].fiat_gain, "200")
+
+    def test_neu_pool_partitioning_by_at_pool(self) -> None:
+        # Two Neu buys in different pools (A @ 100, B @ 1000). Disposal tagged `at_pool=A`
+        # must use pool A's average (100), not a cross-pool blended average.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100", notes="at_pool=A"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="1000", notes="at_pool=B"),
+        ]
+        out_txs = [
+            self._sell(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_pool=A at_regime=neu"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        # Pool A contains only lot 1 @ 100 → cost basis 0.5 * 100 = 50.
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")
+        assert gains[0].acquired_lot is not None
+        self.assertEqual(gains[0].acquired_lot.row, 1)
+
+    def test_default_pool_is_independent_from_named_pool(self) -> None:
+        # One lot in default pool, one in named pool; disposal in default pool sees only
+        # the default-pool lot's average.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="200"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="800", notes="at_pool=cold"),
+        ]
+        out_txs = [
+            self._sell(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_regime=neu"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")  # 0.5 * 200
+
+    def test_empty_swap_link_id_raises(self) -> None:
+        # `at_swap_link=` with no id is a Kassiber bug: silently forcing zero gain without
+        # a pairable id hides data loss. The method refuses to guess.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+        ]
+        out_txs = [
+            self._sell(row=2, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_swap_link="),
+        ]
+        with self.assertRaisesRegex(RP2ValueError, "Empty `at_swap_link=` marker"):
+            self._compute(in_txs, out_txs)
 
     def test_neu_acquisition_after_neu_disposal_moves_average(self) -> None:
         # Phase-2 interleaving scenario, but on the AT method and through the Neu pool only.
