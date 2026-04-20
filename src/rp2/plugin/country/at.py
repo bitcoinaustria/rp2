@@ -113,10 +113,10 @@ class AT(AbstractCountry):
         }
 
     # Default language to use at report generation if the user doesn't specify it on the
-    # command line. Stays `en` until the Phase 6 `de_AT` catalog ships; users can opt in early
-    # with `-g en` once de_AT lands (or vice versa).
+    # command line. Austrian taxpayers transcribe values into a German FinanzOnline form,
+    # so the de_AT catalog is the natural default. Users can still request `-g en`.
     def get_default_generation_language(self) -> str:
-        return "en"
+        return "de_AT"
 
 
 # Austria-specific entry point

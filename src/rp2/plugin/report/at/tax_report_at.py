@@ -25,6 +25,7 @@ from rp2.abstract_report_generator import AbstractReportGenerator
 from rp2.computed_data import ComputedData
 from rp2.configuration import MIN_DATE
 from rp2.gain_loss import GainLoss
+from rp2.localization import _
 from rp2.logger import create_logger
 from rp2.plugin.country.at import (
     AT_SPEKULATIONSFRIST_DAYS,
@@ -37,27 +38,14 @@ from rp2.rp2_error import RP2TypeError
 
 LOGGER: logging.Logger = create_logger("tax_report_at")
 
-# Category keys used to bucket each GainLoss row into its reporting lane.
+# Category keys used to bucket each GainLoss row into its reporting lane. These are internal
+# identifiers, not user-facing strings — they are not localized.
 _CAT_INCOME: str = "income"
 _CAT_NEU_GAIN: str = "neu_gain"
 _CAT_NEU_LOSS: str = "neu_loss"
 _CAT_NEU_SWAP: str = "neu_swap"
 _CAT_ALT_SPEKULATION: str = "alt_spekulation"
 _CAT_ALT_TAXFREE: str = "alt_taxfree"
-
-_SHEET_SUMMARY: str = "Summary"
-_SHEET_FINANZONLINE: str = "FinanzOnline"
-_SHEET_NEU_DISPOSALS: str = "Neuvermoegen Disposals"
-_SHEET_ALT_DISPOSALS: str = "Altvermoegen Disposals"
-_SHEET_SWAPS: str = "Swaps (Neu, tax-neutral)"
-_SHEET_INCOME: str = "Income (Kz 172)"
-
-_DISCLAIMER: str = (
-    "This report is an automated summary of imported transactions under the assumption that "
-    "all disposals are foreign (auslaendisch). Kennzahlen 171/173 (inlaendisch, CASP-withheld) "
-    "are left blank and must be transcribed manually from the domestic provider's own tax "
-    "statement. Have a Steuerberater review this output before filing on FinanzOnline."
-)
 
 
 def _classify(gain_loss: GainLoss) -> str:
@@ -139,8 +127,8 @@ class Generator(AbstractReportGenerator):
         doc: Any = ezodf.newdoc("ods", str(output_file_path))
         self._add_summary_sheet(doc, country, accounting_method, from_date, to_date, totals, rows)
         self._add_finanzonline_sheet(doc, totals)
-        self._add_disposals_sheet(doc, _SHEET_NEU_DISPOSALS, rows[_CAT_NEU_GAIN] + rows[_CAT_NEU_LOSS], include_holding_days=False)
-        self._add_disposals_sheet(doc, _SHEET_ALT_DISPOSALS, rows[_CAT_ALT_SPEKULATION] + rows[_CAT_ALT_TAXFREE], include_holding_days=True)
+        self._add_disposals_sheet(doc, _("Neuvermoegen Disposals"), rows[_CAT_NEU_GAIN] + rows[_CAT_NEU_LOSS], include_holding_days=False)
+        self._add_disposals_sheet(doc, _("Altvermoegen Disposals"), rows[_CAT_ALT_SPEKULATION] + rows[_CAT_ALT_TAXFREE], include_holding_days=True)
         self._add_swaps_sheet(doc, rows[_CAT_NEU_SWAP])
         self._add_income_sheet(doc, rows[_CAT_INCOME])
         doc.save()
@@ -162,48 +150,59 @@ class Generator(AbstractReportGenerator):
         rows: DefaultDict[str, List[Tuple[str, GainLoss]]],
     ) -> None:
         lines: List[Tuple[str, str]] = [
-            ("Austrian Tax Report (Muster / informational)", ""),
-            ("Country", country.country_iso_code.upper()),
-            ("Fiat currency", country.currency_iso_code.upper()),
-            ("Accounting method", accounting_method),
-            ("Period from", _fmt_date(from_date)),
-            ("Period to", _fmt_date(to_date)),
+            (_("Austrian Tax Report (Muster / informational)"), ""),
+            (_("Country"), country.country_iso_code.upper()),
+            (_("Fiat currency"), country.currency_iso_code.upper()),
+            (_("Accounting method"), accounting_method),
+            (_("Period from"), _fmt_date(from_date)),
+            (_("Period to"), _fmt_date(to_date)),
             ("", ""),
-            ("=== Kennzahlen Totals (EUR) ===", ""),
-            ("Kz 172 - Laufende Einkuenfte (foreign)", _fmt_eur(totals[_CAT_INCOME])),
-            ("Kz 174 - Realized gains Neuvermoegen (foreign)", _fmt_eur(totals[_CAT_NEU_GAIN])),
-            ("Kz 176 - Losses Neuvermoegen (foreign, positive magnitude)", _fmt_eur(totals[_CAT_NEU_LOSS])),
-            ("Kz 801 - Spekulationsgeschaefte (Altvermoegen < 1 year, net)", _fmt_eur(totals[_CAT_ALT_SPEKULATION])),
+            (_("=== Kennzahlen Totals (EUR) ==="), ""),
+            (_("Kz 172 - Laufende Einkuenfte (foreign)"), _fmt_eur(totals[_CAT_INCOME])),
+            (_("Kz 174 - Realized gains Neuvermoegen (foreign)"), _fmt_eur(totals[_CAT_NEU_GAIN])),
+            (_("Kz 176 - Losses Neuvermoegen (foreign, positive magnitude)"), _fmt_eur(totals[_CAT_NEU_LOSS])),
+            (_("Kz 801 - Spekulationsgeschaefte (Altvermoegen < 1 year, net)"), _fmt_eur(totals[_CAT_ALT_SPEKULATION])),
             ("", ""),
-            ("=== Informational ===", ""),
-            ("Altvermoegen tax-free (>= 1 year holding)", _fmt_eur(totals[_CAT_ALT_TAXFREE])),
-            ("Neuvermoegen tax-neutral swaps (count)", str(len(rows[_CAT_NEU_SWAP]))),
+            (_("=== Informational ==="), ""),
+            (_("Altvermoegen tax-free (>= 1 year holding)"), _fmt_eur(totals[_CAT_ALT_TAXFREE])),
+            (_("Neuvermoegen tax-neutral swaps (count)"), str(len(rows[_CAT_NEU_SWAP]))),
             ("", ""),
-            ("=== Disclaimer ===", ""),
-            (_DISCLAIMER, ""),
+            (_("=== Disclaimer ==="), ""),
+            (
+                _(
+                    "This report is an automated summary of imported transactions under the assumption that "
+                    "all disposals are foreign (auslaendisch). Kennzahlen 171/173 (inlaendisch, CASP-withheld) "
+                    "are left blank and must be transcribed manually from the domestic provider's own tax "
+                    "statement. Have a Steuerberater review this output before filing on FinanzOnline."
+                ),
+                "",
+            ),
         ]
-        sheet: Any = ezodf.Sheet(_SHEET_SUMMARY, size=(len(lines), 2))
+        sheet: Any = ezodf.Sheet(_("Summary"), size=(len(lines), 2))
         doc.sheets += sheet
         for row_index, (label, value) in enumerate(lines):
             self._set_row(sheet, row_index, [label, value])
 
     def _add_finanzonline_sheet(self, doc: Any, totals: DefaultDict[str, RP2Decimal]) -> None:
-        # Mirrors Blockpit's E 1kv page layout; labels kept in German (verbatim from the form).
+        # Kennzahl codes and their German labels are the BMF form's verbatim field names —
+        # never localized, because the taxpayer transcribes them unchanged into FinanzOnline.
+        # Only the surrounding column/section headers and the inlaendisch placeholder are
+        # localized.
         rows: List[List[str]] = [
-            ["Kennzahl", "Label", "Value (EUR)"],
+            [_("Kennzahl"), _("Label"), _("Value (EUR)")],
             ["", "Einkuenfte aus Kapitalvermoegen (auslaendisch)", ""],
             ["172", "Laufende Einkuenfte", _fmt_eur(totals[_CAT_INCOME])],
             ["174", "Ueberschuesse aus realisierten Wertsteigerungen", _fmt_eur(totals[_CAT_NEU_GAIN])],
             ["176", "Verluste", _fmt_eur(totals[_CAT_NEU_LOSS])],
             ["", "", ""],
             ["", "Einkuenfte aus Kapitalvermoegen (inlaendisch, CASP-withheld)", ""],
-            ["171", "Laufende Einkuenfte", "(transcribe from domestic provider)"],
-            ["173", "Ueberschuesse aus realisierten Wertsteigerungen", "(transcribe from domestic provider)"],
+            ["171", "Laufende Einkuenfte", _("(transcribe from domestic provider)")],
+            ["173", "Ueberschuesse aus realisierten Wertsteigerungen", _("(transcribe from domestic provider)")],
             ["", "", ""],
             ["", "Sonstige Einkuenfte", ""],
             ["801", "Einkuenfte aus Spekulationsgeschaeften (Altvermoegen < 1y)", _fmt_eur(totals[_CAT_ALT_SPEKULATION])],
         ]
-        sheet: Any = ezodf.Sheet(_SHEET_FINANZONLINE, size=(len(rows), 3))
+        sheet: Any = ezodf.Sheet(_("FinanzOnline"), size=(len(rows), 3))
         doc.sheets += sheet
         for row_index, values in enumerate(rows):
             self._set_row(sheet, row_index, values)
@@ -216,18 +215,18 @@ class Generator(AbstractReportGenerator):
         include_holding_days: bool,
     ) -> None:
         header: List[str] = [
-            "Disposal date",
-            "Asset",
-            "Crypto amount",
-            "Proceeds EUR",
-            "Cost basis EUR",
-            "Gain/Loss EUR",
-            "Acquisition date",
-            "Acquired lot ID",
-            "Disposal Tx ID",
+            _("Disposal date"),
+            _("Asset"),
+            _("Crypto amount"),
+            _("Proceeds EUR"),
+            _("Cost basis EUR"),
+            _("Gain/Loss EUR"),
+            _("Acquisition date"),
+            _("Acquired lot ID"),
+            _("Disposal Tx ID"),
         ]
         if include_holding_days:
-            header += ["Holding days", "Status"]
+            header += [_("Holding days"), _("Status")]
         rows: List[List[str]] = [header]
         for asset, gl in entries:
             assert gl.acquired_lot is not None  # disposals always have an acquired_lot
@@ -244,7 +243,7 @@ class Generator(AbstractReportGenerator):
             ]
             if include_holding_days:
                 holding_days: int = (gl.taxable_event.timestamp - gl.acquired_lot.timestamp).days
-                status: str = "TAX-FREE" if holding_days >= AT_SPEKULATIONSFRIST_DAYS else "TAXABLE (Kz 801)"
+                status: str = _("TAX-FREE") if holding_days >= AT_SPEKULATIONSFRIST_DAYS else _("TAXABLE (Kz 801)")
                 row += [str(holding_days), status]
             rows.append(row)
         sheet: Any = ezodf.Sheet(sheet_name, size=(max(1, len(rows)), len(header)))
@@ -254,14 +253,14 @@ class Generator(AbstractReportGenerator):
 
     def _add_swaps_sheet(self, doc: Any, entries: List[Tuple[str, GainLoss]]) -> None:
         header: List[str] = [
-            "Swap date",
-            "Asset (outgoing)",
-            "Crypto amount",
-            "Spot price EUR",
-            "Proceeds EUR (zero gain by construction)",
-            "Pool cost basis carried EUR",
-            "Swap link (at_swap_link)",
-            "Tx ID",
+            _("Swap date"),
+            _("Asset (outgoing)"),
+            _("Crypto amount"),
+            _("Spot price EUR"),
+            _("Proceeds EUR (zero gain by construction)"),
+            _("Pool cost basis carried EUR"),
+            _("Swap link (at_swap_link)"),
+            _("Tx ID"),
         ]
         rows: List[List[str]] = [header]
         for asset, gl in entries:
@@ -279,19 +278,19 @@ class Generator(AbstractReportGenerator):
                     gl.taxable_event.unique_id or "",
                 ]
             )
-        sheet: Any = ezodf.Sheet(_SHEET_SWAPS, size=(max(1, len(rows)), len(header)))
+        sheet: Any = ezodf.Sheet(_("Swaps (Neu, tax-neutral)"), size=(max(1, len(rows)), len(header)))
         doc.sheets += sheet
         for row_index, values in enumerate(rows):
             self._set_row(sheet, row_index, values)
 
     def _add_income_sheet(self, doc: Any, entries: List[Tuple[str, GainLoss]]) -> None:
         header: List[str] = [
-            "Receipt date",
-            "Asset",
-            "Crypto amount",
-            "Fiat value EUR",
-            "Transaction type",
-            "Tx ID",
+            _("Receipt date"),
+            _("Asset"),
+            _("Crypto amount"),
+            _("Fiat value EUR"),
+            _("Transaction type"),
+            _("Tx ID"),
         ]
         rows: List[List[str]] = [header]
         for asset, gl in entries:
@@ -305,7 +304,7 @@ class Generator(AbstractReportGenerator):
                     gl.taxable_event.unique_id or "",
                 ]
             )
-        sheet: Any = ezodf.Sheet(_SHEET_INCOME, size=(max(1, len(rows)), len(header)))
+        sheet: Any = ezodf.Sheet(_("Income (Kz 172)"), size=(max(1, len(rows)), len(header)))
         doc.sheets += sheet
         for row_index, values in enumerate(rows):
             self._set_row(sheet, row_index, values)

@@ -42,7 +42,7 @@ class TestPluginCountryAT(unittest.TestCase):
         self.assertEqual(self.country.get_report_generators(), expected)
 
     def test_default_generation_language(self) -> None:
-        self.assertEqual(self.country.get_default_generation_language(), "en")
+        self.assertEqual(self.country.get_default_generation_language(), "de_AT")
 
     def test_entry_point_is_callable(self) -> None:
         # Verifies the console-script target resolves and is wired to rp2_main.
