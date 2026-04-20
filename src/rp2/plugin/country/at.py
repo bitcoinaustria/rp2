@@ -33,14 +33,16 @@ class AT(AbstractCountry):
         return sys.maxsize
 
     # Default accounting method to use if the user doesn't specify one on the command line.
-    # The Alt/Neu-aware wrapper lands in Phase 3 and will become the default; until then FIFO
-    # stays the default and `moving_average` is opt-in via `-m moving_average`.
+    # `moving_average_at` is the legally correct default: it routes Altvermögen disposals to a
+    # FIFO path (Spekulationsfrist derivable in the report) and Neuvermögen disposals to the
+    # gleitender Durchschnittspreis (§ 2 KryptowährungsVO).
     def get_default_accounting_method(self) -> str:
-        return "fifo"
+        return "moving_average_at"
 
-    # Set of accounting methods accepted in the country.
+    # Set of accounting methods accepted in the country. `moving_average` (plain) is kept for
+    # comparison runs; `fifo` stays available for diagnostics and legacy imports.
     def get_accounting_methods(self) -> Set[str]:
-        return {"fifo", "moving_average"}
+        return {"fifo", "moving_average", "moving_average_at"}
 
     # Default set of generators to use if the user doesn't specify them on the command line.
     # `at.tax_report_at` (E 1kv-aligned) lands in Phase 5.

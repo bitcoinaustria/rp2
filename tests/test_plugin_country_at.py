@@ -33,9 +33,9 @@ class TestPluginCountryAT(unittest.TestCase):
         self.assertEqual(self.country.get_long_term_capital_gain_period(), sys.maxsize)
 
     def test_accounting_methods(self) -> None:
-        expected: Set[str] = {"fifo", "moving_average"}
+        expected: Set[str] = {"fifo", "moving_average", "moving_average_at"}
         self.assertEqual(self.country.get_accounting_methods(), expected)
-        self.assertEqual(self.country.get_default_accounting_method(), "fifo")
+        self.assertEqual(self.country.get_default_accounting_method(), "moving_average_at")
 
     def test_report_generators_phase1(self) -> None:
         expected: Set[str] = {"open_positions", "rp2_full_report"}

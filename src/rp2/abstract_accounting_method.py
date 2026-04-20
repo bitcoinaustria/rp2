@@ -21,6 +21,7 @@ from enum import Enum
 from heapq import heappop, heappush
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
+from rp2.abstract_transaction import AbstractTransaction
 from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2RuntimeError, RP2TypeError
@@ -177,7 +178,11 @@ class AbstractAccountingMethod:
         self,
         lot_candidates: AbstractAcquiredLotCandidates,
         taxable_event_amount: RP2Decimal,
+        taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
+        # `taxable_event` lets regime-aware methods (e.g. moving_average_at) classify the
+        # disposal and route it to the correct sub-pool. It's optional for backward compat;
+        # lot-based methods that don't care about the disposal itself can ignore it.
         raise NotImplementedError("Abstract function")
 
     @property
@@ -209,6 +214,7 @@ class AbstractChronologicalAccountingMethod(AbstractAccountingMethod):
         self,
         lot_candidates: AbstractAcquiredLotCandidates,
         taxable_event_amount: RP2Decimal,
+        taxable_event: Optional[AbstractTransaction] = None,  # pylint: disable=unused-argument
     ) -> Optional[AcquiredLotAndAmount]:
         selected_acquired_lot_amount: RP2Decimal = ZERO
         selected_acquired_lot: Optional[InTransaction] = None
@@ -260,6 +266,7 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
         self,
         lot_candidates: AbstractAcquiredLotCandidates,
         taxable_event_amount: RP2Decimal,
+        taxable_event: Optional[AbstractTransaction] = None,  # pylint: disable=unused-argument
     ) -> Optional[AcquiredLotAndAmount]:
         selected_acquired_lot_amount: RP2Decimal = ZERO
         selected_acquired_lot: Optional[InTransaction] = None

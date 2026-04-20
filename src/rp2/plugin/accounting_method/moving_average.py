@@ -20,6 +20,7 @@ from rp2.abstract_accounting_method import (
     AcquiredLotAndAmount,
     AcquiredLotCandidatesOrder,
 )
+from rp2.abstract_transaction import AbstractTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
 
 
@@ -48,10 +49,11 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         self,
         lot_candidates: AbstractAcquiredLotCandidates,
         taxable_event_amount: RP2Decimal,
+        taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
         self.__sync_pool(lot_candidates)
 
-        fifo_result: Optional[AcquiredLotAndAmount] = super().seek_non_exhausted_acquired_lot(lot_candidates, taxable_event_amount)
+        fifo_result: Optional[AcquiredLotAndAmount] = super().seek_non_exhausted_acquired_lot(lot_candidates, taxable_event_amount, taxable_event)
         if fifo_result is None:
             return None
 
