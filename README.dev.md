@@ -275,9 +275,10 @@ Report plugin output can be localized in many languages (see the [Localization](
 ### Adding a New Accounting Method
 Accounting method plugins modify the behavior of the tax engine. They pair in/out lots according to the given accounting algorithm: [FIFO](src/rp2/plugin/accounting_method/fifo.py), [LIFO](src/rp2/plugin/accounting_method/lifo.py), and [HIFO](src/rp2/plugin/accounting_method/hifo.py) are examples of accounting method plugins.
 
-In RP2 there are two accounting method flavors:
+In RP2 there are three accounting method flavors:
 * Chronological: these methods sort the in-lots based on their chronological order and have O(n) complexity. FIFO is an example of this type.
 * Feature-dependent: these methods sort in-lots according to a specific criterion that depends on the features of the current out-lot, such as spot price or date of sale, and have O(n*log(n)) complexity. HIFO (Highest-Index-First-Out) is an example of this type.
+* Pool-based: these methods pair lots chronologically (for the audit trail) but override the per-disposal cost basis with a running weighted average over a pool of lots. The running average is maintained on the candidates container. [moving_average](src/rp2/plugin/accounting_method/moving_average.py) is an example of this type.
 
 The RP2 accounting engine automatically provides the following common functionality for all plugins:
 * ensure the date of the selected acquired lot is always before or on the date of the sold lot;
@@ -326,6 +327,26 @@ Accounting method plugins are discovered by RP2 at runtime and they must adhere 
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
     ```
   * write the body of the method: it should return the sort key, reflecting the desired sort criteria for acquired lots. Note that you may have to add new fields to `AcquiredLotSortKey` to reflect the feature you want to sort on: such addition should be backward compatible to ensure it doesn't break existing accounting methods.
+
+* For pool-based accounting methods:
+  * import the following (plus any other RP2 or Python package you might need):
+    ```
+    from rp2.abstract_accounting_method import (
+        AbstractAcquiredLotCandidates,
+        AbstractChronologicalAccountingMethod,
+        AcquiredLotAndAmount,
+        AcquiredLotCandidatesOrder,
+        PoolAcquiredLotCandidates,
+    )
+    ```
+  * Add a class named `AccountingMethod`, deriving from `AbstractChronologicalAccountingMethod`:
+    ```
+    class AccountingMethod(AbstractChronologicalAccountingMethod):
+    ```
+  * Override `create_lot_candidates()` to return a `PoolAcquiredLotCandidates` (instead of the default `ChronologicalAcquiredLotCandidates`). This container owns one `(qty, cost_total)` tuple per free-form pool id — the method reads/writes pool state via `container.get_pool(pool_id)` and `container.set_pool(pool_id, qty, cost_total)`, and tracks how far it has synced via `container.last_synced_index` / `container.set_last_synced_index(n)`. State lives with the container, so it is naturally garbage-collected and cannot be aliased across runs.
+  * Override `seek_non_exhausted_acquired_lot()`: the method still pairs a real acquired lot (FIFO for the audit trail), but returns an `AcquiredLotAndAmount` with `unit_cost_basis_override` set to the running pool average at the time of the disposal. The lot's own `fiat_in_with_fee` is retained for other consumers; `GainLoss.fiat_cost_basis` honors the override.
+  * Pool identity is the method's concern. The generic `moving_average` plugin uses a single conventional pool id; regime-aware methods (e.g. `moving_average_at`) partition into multiple pool ids based on per-lot conventions. The container is pool-id-agnostic.
+  * Running-average invariant: depleting `amount * pool_average` from `cost_total` while depleting `amount` from `qty` leaves the average unchanged by construction. This means disposals do not move the running average; only acquisitions do. Rely on this when reasoning about multi-disposal sequences.
 
 **NOTE**: If you're interested in adding support for a new accounting method, open a [PR](CONTRIBUTING.md).
 
