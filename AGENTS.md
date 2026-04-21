@@ -4,7 +4,7 @@
 
 - RP2 is a local-first, privacy-first crypto tax engine with a plugin architecture.
 - This repo is the **Kassiber-maintained fork** at `bitcoinaustria/rp2`. The upstream is `eprbell/rp2`. Changes meant for upstream should be authored so they can be proposed as independent PRs (additive country plugin, additive accounting method, additive transaction field with default value, etc.).
-- The primary consumer of this fork is [Kassiber](https://github.com/bitcoinaustria/kassiber), which embeds RP2 as its tax engine via [kassiber/core/engines/rp2.py](../kassiber/kassiber/core/engines/rp2.py). Kassiber normalizes raw transactions into RP2 inputs; RP2 owns the tax math.
+- The primary consumer of this fork is Kassiber, which embeds RP2 as its tax engine via `kassiber/core/engines/rp2.py` in the Kassiber codebase. Kassiber normalizes raw transactions into RP2 inputs; RP2 owns the tax math.
 - Developer documentation lives in [README.dev.md](README.dev.md). User documentation lives in [README.md](README.md). Read `README.dev.md` before touching core — it captures the design rules this codebase lives by.
 
 ## Source tree highlights

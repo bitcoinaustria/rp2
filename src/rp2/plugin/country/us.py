@@ -36,6 +36,12 @@ class US(AbstractCountry):
     def get_accounting_methods(self) -> Set[str]:
         return {"fifo", "hifo", "lifo", "lofo"}
 
+    # US tax rules shifted from universal to per-wallet application starting 2025
+    # (Rev. Proc. 2024-28). Both are accepted here; the [application_methods]
+    # section in the configuration file selects which applies in each year.
+    def get_application_methods(self) -> Set[str]:
+        return {"universal", "per_wallet"}
+
     # Default set of generators to use if the user doesn't specify them on the command line
     def get_report_generators(self) -> Set[str]:
         return {

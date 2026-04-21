@@ -21,7 +21,7 @@ from prezzemolo.utility import to_string
 
 from rp2.abstract_entry import AbstractEntry
 from rp2.configuration import Configuration
-from rp2.in_transaction import InTransaction
+from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
 from rp2.logger import LOGGER
@@ -84,12 +84,6 @@ class Balance:
         return self.to_string(indent=0, repr_format=True)
 
 
-@dataclass(frozen=True, eq=True)
-class Account:
-    exchange: str
-    holder: str
-
-
 class BalanceSet:
     @classmethod
     def type_check(cls, name: str, instance: "BalanceSet") -> "BalanceSet":
@@ -135,6 +129,8 @@ class BalanceSet:
                 break
             if isinstance(transaction, InTransaction):
                 in_transaction: InTransaction = transaction
+                if self.__input_data.is_intra_backed_artificial_in_transaction(in_transaction):
+                    continue
                 to_account = Account(in_transaction.exchange, in_transaction.holder)
                 acquired_balances[to_account] = acquired_balances.get(to_account, ZERO) + in_transaction.crypto_in
                 final_balances[to_account] = final_balances.get(to_account, ZERO) + in_transaction.crypto_in
@@ -189,6 +185,7 @@ class BalanceSet:
             self._balances.append(balance)
 
         self._balances.sort(key=_balance_sort_key)
+        self.__account_to_balances: Dict[Account, Balance] = {Account(balance.exchange, balance.holder): balance for balance in self._balances}
 
     def __str__(self) -> str:
         output: List[str] = []
@@ -224,6 +221,10 @@ class BalanceSet:
     @property
     def asset(self) -> str:
         return self.__asset
+
+    @property
+    def account_to_balance(self) -> Dict[Account, Balance]:
+        return self.__account_to_balances
 
 
 class BalanceSetIterator:

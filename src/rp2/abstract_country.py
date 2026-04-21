@@ -91,3 +91,22 @@ class AbstractCountry:
     # Default language to use at report generation if the user doesn't specify it on the command line (in ISO 639-1 format)
     def get_default_generation_language(self) -> str:
         raise NotImplementedError("Abstract function")
+
+    # Default application method to use if the user doesn't specify one in the configuration file.
+    # Returns one of: "universal", "per_wallet". Countries default to universal for backwards
+    # compatibility; countries that require per-wallet for a given year should override.
+    def get_default_application_method(self) -> str:
+        return "universal"
+
+    # Set of application methods accepted in the country. Must be a subset of {"universal", "per_wallet"}.
+    def get_application_methods(self) -> Set[str]:
+        return {"universal"}
+
+    # Default transfer method (used by the per-wallet transfer analyzer to decide which lot is moved
+    # during an IntraTransaction). When the user doesn't specify one, fall back to the accounting method.
+    def get_default_transfer_method(self) -> str:
+        return self.get_default_accounting_method()
+
+    # Set of transfer methods accepted in the country. By default matches the accounting methods set.
+    def get_transfer_methods(self) -> Set[str]:
+        return self.get_accounting_methods()
