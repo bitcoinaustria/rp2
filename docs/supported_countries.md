@@ -18,6 +18,7 @@
 * **[Introduction](#introduction)**
 * **[Accounting Methods](#accounting-methods)**
 * **[Countries](#countries)**
+  * [Austria](#austria)
   * [Generic](#generic)
   * [Ireland](#ireland)
   * [Japan](#japan)
@@ -29,12 +30,23 @@ RP2 supports most countries each of which has different accounting methods and r
 
 ## Accounting Methods
 RP2 supports the following accounting methods (although not all countries support all accounting methods):
-  * [FIFO](https://www.investopedia.com/terms/f/fifo.asp): lots acquired first are disposed of first;
-  * [LIFO](https://www.investopedia.com/terms/l/lifo.asp): lots acquired last are disposed of first (opposite of FIFO);
-  * [HIFO](https://www.investopedia.com/terms/h/hifo.asp): highest priced lots are disposed of first;
+  * FIFO: lots acquired first are disposed of first;
+  * LIFO: lots acquired last are disposed of first (opposite of FIFO);
+  * HIFO: highest priced lots are disposed of first;
   * LOFO: lowest priced lots are disposed of first (opposite of HIFO).
 
 ## Countries
+
+### Austria
+RP2 support for Austria in the `bitcoinaustria/rp2` fork includes the following features:
+* Austria-specific RP2 executable: `rp2_at`.
+* Accounting methods:
+  * `moving_average_at`: Austrian regime-aware method (default).
+  * `moving_average`: generic moving-average method, kept for comparison runs.
+  * FIFO: kept for diagnostics and legacy imports.
+* [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
+  * [open_positions](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#open-positions-report-unrealized-gains): report on assets with non-zero crypto balance (valid for any country): unrealized gains / losses, portfolio weighting, and more.
+* Important note: `rp2_at` is now engine-focused and the CLI no longer emits an Austrian E 1kv / FinanzOnline-style summary. Austrian report presentation and form-code aggregation live in Kassiber; the stable semantic classification surface remains available in `rp2.plugin.country.at`.
 
 ### Generic
 This is a placeholder country that is meant to be used by people of countries that are yet unsupported by RP2. It produces a country-agnostic, detailed report and supports all RP2 accounting methods (which can be selected with the `-m` option). It requires the definition of two environment variables:
@@ -51,9 +63,9 @@ Set CURRENCY_CODE=eur LONG_TERM_CAPITAL_GAINS=1000000000 rp2_generic...
 RP2 Generic supports the following features:
 * Generic RP2 executable: `rp2_generic`.
 * Accounting methods (note that these methods use [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/), not per-wallet application):
-  * [FIFO](https://www.investopedia.com/terms/f/fifo.asp),
-  * [LIFO](https://www.investopedia.com/terms/l/lifo.asp),
-  * [HIFO](https://www.investopedia.com/terms/h/hifo.asp),
+  * FIFO,
+  * LIFO,
+  * HIFO,
   * LOFO.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
@@ -63,7 +75,7 @@ RP2 Generic supports the following features:
 RP2 support for Ireland includes the following features:
 * Ireland-specific RP2 executable: `rp2_ie`.
 * Accounting methods (note that in Ireland [specific](https://www.revenue.ie/en/tax-professionals/tdm/income-tax-capital-gains-tax-corporation-tax/part-19/19-04-03.pdf) [rules](https://www.revenue.ie/en/gains-gifts-and-inheritance/transfering-an-asset/selling-or-disposing-of-shares.aspx) apply to assets bought and sold within a 4 week window: this is **NOT** yet supported by RP2):
-  * [FIFO](https://www.investopedia.com/terms/f/fifo.asp).
+  * FIFO.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
   * [tax_report_ie](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-ie-advisor-friendly-report): tax report meant to be read by tax preparers;
@@ -73,7 +85,7 @@ RP2 support for Ireland includes the following features:
 RP2 support for Japan includes the following features:
 * Japan-specific RP2 executable: `rp2_jp`.
 * Accounting methods:
-  * [Total Average Method](https://www.investopedia.com/terms/a/averagecostmethod.asp).
+  * Total Average Method.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
   * [tax_report_jp](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-jp-advisor-friendly-report): Japan-specific tax report meant to be read by tax preparers;
@@ -83,7 +95,7 @@ RP2 support for Japan includes the following features:
 RP2 support for Spain includes the following features:
 * Spain-specific RP2 executable: `rp2_es`.
 * Accounting methods:
-  * [FIFO](https://www.investopedia.com/terms/f/fifo.asp).
+  * FIFO.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
   * [open_positions](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#open-positions-report-unrealized-gains): report on assets with non-zero crypto balance (valid for any country): unrealized gains / losses, portfolio weighting, and more.
@@ -91,9 +103,9 @@ RP2 support for Spain includes the following features:
 ### USA
 RP2 support for the US includes the following features:
 * Accounting methods (note that these methods use [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/), not per-wallet application):
-  * [FIFO](https://www.investopedia.com/terms/f/fifo.asp),
-  * [LIFO](https://www.investopedia.com/terms/l/lifo.asp),
-  * [HIFO](https://www.investopedia.com/terms/h/hifo.asp),
+  * FIFO,
+  * LIFO,
+  * HIFO,
   * LOFO.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;

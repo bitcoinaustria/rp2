@@ -19,7 +19,7 @@ split rather than any specific form-code assignment.
 """
 
 import unittest
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 from prezzemolo.avl_tree import AVLTree
 
@@ -112,7 +112,7 @@ class TestClassifyDisposal(unittest.TestCase):
         intra_set: TransactionSet = TransactionSet(self._configuration, "INTRA", _ASSET)
         input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set)
         computed: ComputedData = compute_tax(self._configuration, self._make_engine(), input_data)
-        return [gl for gl in computed.gain_loss_set]  # pylint: disable=unnecessary-comprehension
+        return [cast(GainLoss, gain_loss) for gain_loss in computed.gain_loss_set]
 
     def _bucket(self, gain_losses: List[GainLoss]) -> Dict[AtDisposalCategory, List[GainLoss]]:
         out: Dict[AtDisposalCategory, List[GainLoss]] = {}
