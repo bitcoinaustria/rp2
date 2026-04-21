@@ -29,7 +29,7 @@ class TestPluginCountryAT(unittest.TestCase):
 
     def test_long_term_capital_gain_period_is_disabled(self) -> None:
         # Austria has no generic day-threshold; regime-specific handling lives in the
-        # Austrian accounting method (Phase 3+).
+        # Austrian accounting method.
         self.assertEqual(self.country.get_long_term_capital_gain_period(), sys.maxsize)
 
     def test_accounting_methods(self) -> None:
@@ -38,14 +38,16 @@ class TestPluginCountryAT(unittest.TestCase):
         self.assertEqual(self.country.get_default_accounting_method(), "moving_average_at")
 
     def test_report_generators(self) -> None:
-        # rp2_full_report is intentionally excluded: AT disables the day-threshold for
-        # long/short (sys.maxsize), so the generic report would collapse Altvermögen into a
-        # single short-term bucket and mislead taxpayers.
-        expected: Set[str] = {"open_positions", "at.tax_report_at"}
+        # AT ships only `open_positions` from rp2; the BMF E 1kv layout lives in Kassiber.
+        # `rp2_full_report` is intentionally excluded: AT disables the day-threshold
+        # (sys.maxsize), so the generic report would collapse Altvermögen into a single
+        # short-term bucket and mislead taxpayers.
+        expected: Set[str] = {"open_positions"}
         self.assertEqual(self.country.get_report_generators(), expected)
 
     def test_default_generation_language(self) -> None:
-        self.assertEqual(self.country.get_default_generation_language(), "de_AT")
+        # de_AT reporting is Kassiber's responsibility; rp2's default falls back to English.
+        self.assertEqual(self.country.get_default_generation_language(), "en")
 
     def test_entry_point_is_callable(self) -> None:
         # Verifies the console-script target resolves and is wired to rp2_main.

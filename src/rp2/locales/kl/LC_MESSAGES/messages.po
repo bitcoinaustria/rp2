@@ -18,32 +18,16 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-msgid "(transcribe from domestic provider)"
-msgstr ""
-
 msgid "<Crypto> In-Out"
 msgstr "__test_<Crypto> In-Out"
 
 msgid "<Crypto> Tax"
 msgstr "__test_<Crypto> Tax"
 
-msgid "=== Disclaimer ==="
-msgstr ""
-
-msgid "=== Informational ==="
-msgstr ""
-
-msgid "=== Kennzahlen Totals (EUR) ==="
-msgstr ""
-
 msgid "Account Balances"
 msgstr "__test_Account Balances"
 
 msgid "Accounting Method"
-msgstr "__test_Accounting Method"
-
-#, fuzzy
-msgid "Accounting method"
 msgstr "__test_Accounting Method"
 
 msgid "Acquired"
@@ -70,34 +54,17 @@ msgstr "__test_Acquired Lot Spot Price"
 msgid "Acquired Lot Timestamp"
 msgstr "__test_Acquired Lot Timestamp"
 
-#, python-brace-format
 msgid "Acquired Lot {}"
 msgstr "__test_Acquired Lot {}"
 
-#, python-brace-format
 msgid "Acquired Lot {} Amount Fraction"
 msgstr "__test_Acquired Lot {} Amount Fraction"
 
-#, python-brace-format
 msgid "Acquired Lot {} Cost Basis"
 msgstr "__test_Acquired Lot {} Cost Basis"
 
-#, python-brace-format
 msgid "Acquired Lot {} Fee Fraction"
 msgstr "__test_Acquired Lot {} Fee Fraction"
-
-#, fuzzy
-msgid "Acquired lot ID"
-msgstr "__test_Acquired Lot"
-
-msgid "Acquisition date"
-msgstr ""
-
-msgid "Altvermoegen Disposals"
-msgstr ""
-
-msgid "Altvermoegen tax-free (>= 1 year holding)"
-msgstr ""
 
 msgid "Amount"
 msgstr "__test_Amount"
@@ -111,9 +78,6 @@ msgstr "__test_Amount of given asset held"
 msgid "Asset"
 msgstr "__test_Asset"
 
-msgid "Asset (outgoing)"
-msgstr ""
-
 msgid "Asset - Exchange"
 msgstr "__test_Asset - Exchange"
 
@@ -122,9 +86,6 @@ msgstr "__test_Asset Price Lookup Table"
 
 msgid "Asset holder"
 msgstr "__test_Asset holder"
-
-msgid "Austrian Tax Report (Muster / informational)"
-msgstr ""
 
 msgid "Average Price"
 msgstr "__test_Average Price"
@@ -180,14 +141,6 @@ msgstr "__test_Cost Basis"
 msgid "Cost Basis Weight %"
 msgstr "__test_Cost Basis Weight %"
 
-#, fuzzy
-msgid "Cost basis EUR"
-msgstr "__test_Cost Basis"
-
-#, fuzzy
-msgid "Country"
-msgstr "__test_Amount"
-
 msgid "Crypto"
 msgstr "__test_Crypto"
 
@@ -236,10 +189,6 @@ msgstr "__test_Crypto Sent"
 msgid "Crypto Taxable Total"
 msgstr "__test_Crypto Taxable Total"
 
-#, fuzzy
-msgid "Crypto amount"
-msgstr "__test_Crypto Amount"
-
 msgid "Crypto amount for the given taxable event fraction"
 msgstr "__test_Crypto amount for the given taxable event fraction"
 
@@ -260,12 +209,6 @@ msgstr "__test_Direction (IN/OUT/INTRA) and type (BUY, SOLD, etc) of the taxable
 
 msgid "Direction/Type"
 msgstr "__test_Direction/Type"
-
-msgid "Disposal Tx ID"
-msgstr ""
-
-msgid "Disposal date"
-msgstr ""
 
 msgid "Does the transaction contain a taxable event? If so the taxable amount is highlighted in yellow"
 msgstr "__test_Does the transaction contain a taxable event? If so the taxable amount is highlighted in yellow"
@@ -306,12 +249,6 @@ msgstr "__test_Exchange or wallet where balance is held (Asset - Exchange tab on
 msgid "Fee Fraction"
 msgstr "__test_Fee Fraction"
 
-msgid "Fiat currency"
-msgstr ""
-
-msgid "Fiat value EUR"
-msgstr ""
-
 msgid "Fill in Asset Prices in the Input Tab for calculations"
 msgstr "__test_Fill in Asset Prices in the Input Tab for calculations"
 
@@ -323,9 +260,6 @@ msgstr "__test_Final Balance"
 
 msgid "Final balance of all transactions for a given exchange and holder"
 msgstr "__test_Final balance of all transactions for a given exchange and holder"
-
-msgid "FinanzOnline"
-msgstr ""
 
 msgid "Fraction %"
 msgstr "__test_Fraction %"
@@ -357,10 +291,6 @@ msgstr "__test_Gain / Loss Detail"
 msgid "Gain / Loss Summary"
 msgstr "__test_Gain / Loss Summary"
 
-#, fuzzy
-msgid "Gain/Loss EUR"
-msgstr "__test_Gain / Loss %"
-
 msgid "Gains"
 msgstr "__test_Gains"
 
@@ -385,9 +315,6 @@ msgstr "__test_Hash or exchange-specific unique identifier for the transaction"
 msgid "Holder"
 msgstr "__test_Holder"
 
-msgid "Holding days"
-msgstr ""
-
 msgid "How much of the given cryptocurrency was acquired with the transaction"
 msgstr "__test_How much of the given cryptocurrency was acquired with the transaction"
 
@@ -402,9 +329,6 @@ msgstr "__test_In"
 
 msgid "In-Flow Detail"
 msgstr "__test_In-Flow Detail"
-
-msgid "Income (Kz 172)"
-msgstr ""
 
 msgid "Indicates the percent of which this asset's unrealized gain/loss contributed to the whole portfolio's Unrealized Gain / Loss % (Gain/Loss relative to total cash investment)"
 msgstr "__test_Indicates the percent of which this asset's unrealized gain/loss contributed to the whole portfolio's Unrealized Gain / Loss % (Gain/Loss relative to total cash investment)"
@@ -424,29 +348,11 @@ msgstr "__test_Input Price"
 msgid "Intra-Flow Detail"
 msgstr "__test_Intra-Flow Detail"
 
-msgid "Kennzahl"
-msgstr ""
-
-msgid "Kz 172 - Laufende Einkuenfte (foreign)"
-msgstr ""
-
-msgid "Kz 174 - Realized gains Neuvermoegen (foreign)"
-msgstr ""
-
-msgid "Kz 176 - Losses Neuvermoegen (foreign, positive magnitude)"
-msgstr ""
-
-msgid "Kz 801 - Spekulationsgeschaefte (Altvermoegen < 1 year, net)"
-msgstr ""
-
 msgid "LONG"
 msgstr "__test_LONG"
 
 msgid "LONG (> 1 year) or SHORT (< 1 year)"
 msgstr "__test_LONG (> 1 year) or SHORT (< 1 year)"
-
-msgid "Label"
-msgstr ""
 
 msgid "Legend"
 msgstr "__test_Legend"
@@ -468,12 +374,6 @@ msgstr "__test_NO"
 
 msgid "Name of the exchange or wallet account holder"
 msgstr "__test_Name of the exchange or wallet account holder"
-
-msgid "Neuvermoegen Disposals"
-msgstr ""
-
-msgid "Neuvermoegen tax-neutral swaps (count)"
-msgstr ""
 
 msgid "No Fee"
 msgstr "__test_No Fee"
@@ -499,7 +399,6 @@ msgstr "__test_Owner of the exchange account or wallet from which the transfer o
 msgid "Owner of the exchange account or wallet to which the transfer of crypto occurred"
 msgstr "__test_Owner of the exchange account or wallet to which the transfer of crypto occurred"
 
-#, python-brace-format
 msgid "Paid Per 1 {}"
 msgstr "__test_Paid Per 1 {}"
 
@@ -512,28 +411,8 @@ msgstr "__test_Percentage of the in-transaction"
 msgid "Percentage of the taxable event"
 msgstr "__test_Percentage of the taxable event"
 
-msgid "Period from"
-msgstr ""
-
-msgid "Period to"
-msgstr ""
-
-#, fuzzy
-msgid "Pool cost basis carried EUR"
-msgstr "__test_Total Cost Basis %"
-
 msgid "Price"
 msgstr "__test_Price"
-
-msgid "Proceeds EUR"
-msgstr ""
-
-msgid "Proceeds EUR (zero gain by construction)"
-msgstr ""
-
-#, fuzzy
-msgid "Receipt date"
-msgstr "__test_Received"
 
 msgid "Received"
 msgstr "__test_Received"
@@ -574,7 +453,6 @@ msgstr "__test_Sent/Sold"
 msgid "Sheet Types"
 msgstr "__test_Sheet Types"
 
-#, python-brace-format
 msgid "Size of investment relative to other assets for cost basis ({} Unrealized Cost Basis divided by the sum of all assets' {} Unrealized Cost Basis)"
 msgstr "__test_Size of investment relative to other assets for cost basis ({} Unrealized Cost Basis divided by the sum of all assets' {} Unrealized Cost Basis)"
 
@@ -584,25 +462,15 @@ msgstr "__test_Size of investment relative to the portfolio's unrealized value (
 msgid "Spot Price"
 msgstr "__test_Spot Price"
 
-#, fuzzy
-msgid "Spot price EUR"
-msgstr "__test_Spot Price"
-
-msgid "Status"
-msgstr ""
-
-#, python-brace-format
 msgid "Sum of all capital gains in {} for transactions of the given capital gains type"
 msgstr "__test_Sum of all capital gains in {} for transactions of the given capital gains type"
 
-#, python-brace-format
 msgid "Sum of all cost bases in {} for transactions of the given capital gains type"
 msgstr "__test_Sum of all cost bases in {} for transactions of the given capital gains type"
 
 msgid "Sum of all taxable events in crypto for transactions of the given capital gains type"
 msgstr "__test_Sum of all taxable events in crypto for transactions of the given capital gains type"
 
-#, python-brace-format
 msgid "Sum of all taxable events in {} for transactions of the given capital gains type"
 msgstr "__test_Sum of all taxable events in {} for transactions of the given capital gains type"
 
@@ -617,22 +485,6 @@ msgstr "__test_Summary"
 
 msgid "Summary year"
 msgstr "__test_Summary year"
-
-msgid "Swap date"
-msgstr ""
-
-msgid "Swap link (at_swap_link)"
-msgstr ""
-
-msgid "Swaps (Neu, tax-neutral)"
-msgstr ""
-
-msgid "TAX-FREE"
-msgstr ""
-
-#, fuzzy
-msgid "TAXABLE (Kz 801)"
-msgstr "__test_Taxable"
 
 msgid "Table Types"
 msgstr "__test_Table Types"
@@ -658,11 +510,9 @@ msgstr "__test_Taxable Event Spot Price"
 msgid "Taxable Event Timestamp"
 msgstr "__test_Taxable Event Timestamp"
 
-#, python-brace-format
 msgid "Taxable Event {}"
 msgstr "__test_Taxable Event {}"
 
-#, python-brace-format
 msgid "Taxable Event {} Amount Fraction"
 msgstr "__test_Taxable Event {} Amount Fraction"
 
@@ -671,9 +521,6 @@ msgstr "__test_Taxable Total"
 
 msgid "This file contains two versions of the same report. One version is grouped by Asset, the other by Asset and Exchange (or wallet)"
 msgstr "__test_This file contains two versions of the same report. One version is grouped by Asset, the other by Asset and Exchange (or wallet)"
-
-msgid "This report is an automated summary of imported transactions under the assumption that all disposals are foreign (auslaendisch). Kennzahlen 171/173 (inlaendisch, CASP-withheld) are left blank and must be transcribed manually from the domestic provider's own tax statement. Have a Steuerberater review this output before filing on FinanzOnline."
-msgstr ""
 
 msgid "This report leverages the details of your transactions to give you a snapshot of the value of your unsold holdings"
 msgstr "__test_This report leverages the details of your transactions to give you a snapshot of the value of your unsold holdings"
@@ -711,18 +558,11 @@ msgstr "__test_Transaction"
 msgid "Transaction Type"
 msgstr "__test_Transaction Type"
 
-#, fuzzy
-msgid "Transaction type"
-msgstr "__test_Transaction Type"
-
 msgid "Transactions that added new crypto to accounts (e.g. buy, etc.). Only EARN-typed transactions are taxable events (interest received on crypto)"
 msgstr "__test_Transactions that added new crypto to accounts (e.g. buy, etc.). Only EARN-typed transactions are taxable events (interest received on crypto)"
 
 msgid "Transactions that removed some crypto from accounts (e.g. sell, send as gift, etc.). These are taxable events"
 msgstr "__test_Transactions that removed some crypto from accounts (e.g. sell, send as gift, etc.). These are taxable events"
-
-msgid "Tx ID"
-msgstr ""
 
 msgid "Type"
 msgstr "__test_Type"
@@ -752,10 +592,6 @@ msgid "Unrealized Value - Unrealized Cost Basis"
 msgstr "__test_Unrealized Value - Unrealized Cost Basis"
 
 msgid "Value"
-msgstr "__test_Value"
-
-#, fuzzy
-msgid "Value (EUR)"
 msgstr "__test_Value"
 
 msgid "Value Weight %"
@@ -818,9 +654,6 @@ msgstr "__test_income"
 msgid "interest"
 msgstr "__test_interest"
 
-msgid "lost"
-msgstr ""
-
 msgid "mining"
 msgstr "__test_mining"
 
@@ -836,119 +669,90 @@ msgstr "__test_staking"
 msgid "wages"
 msgstr "__test_wages"
 
-#, python-brace-format
 msgid "{}"
 msgstr "__test_{}"
 
-#, python-brace-format
 msgid "{} Fee"
 msgstr "__test_{} Fee"
 
-#, python-brace-format
 msgid "{} In"
 msgstr "__test_{} In"
 
-#, python-brace-format
 msgid "{} In No Fee"
 msgstr "__test_{} In No Fee"
 
-#, python-brace-format
 msgid "{} In With Fee"
 msgstr "__test_{} In With Fee"
 
-#, python-brace-format
 msgid "{} In-Out"
 msgstr "__test_{} In-Out"
 
-#, python-brace-format
 msgid "{} Out"
 msgstr "__test_{} Out"
 
-#, python-brace-format
 msgid "{} Per Unit"
 msgstr "__test_{} Per Unit"
 
-#, python-brace-format
 msgid "{} Per Unit Cost Basis"
 msgstr "__test_{} Per Unit Cost Basis"
 
-#, python-brace-format
 msgid "{} Per Unit Input Price"
 msgstr "__test_{} Per Unit Input Price"
 
-#, python-brace-format
 msgid "{} Tax"
 msgstr "__test_{} Tax"
 
-#, python-brace-format
 msgid "{} Taxable Total"
 msgstr "__test_{} Taxable Total"
 
-#, python-brace-format
 msgid "{} Total"
 msgstr "__test_{} Total"
 
-#, python-brace-format
 msgid "{} Total Cost Basis"
 msgstr "__test_{} Total Cost Basis"
 
-#, python-brace-format
 msgid "{} Unrealized"
 msgstr "__test_{} Unrealized"
 
-#, python-brace-format
 msgid "{} Unrealized Cost Basis"
 msgstr "__test_{} Unrealized Cost Basis"
 
-#, python-brace-format
 msgid "{} Unrealized Gain / Loss"
 msgstr "__test_{} Unrealized Gain / Loss"
 
-#, python-brace-format
 msgid "{} Unrealized Gain / Loss %"
 msgstr "__test_{} Unrealized Gain / Loss %"
 
-#, python-brace-format
 msgid "{} Unrealized Value"
 msgstr "__test_{} Unrealized Value"
 
-#, python-brace-format
 msgid "{} Unrealized Value Weight %"
 msgstr "__test_{} Unrealized Value Weight %"
 
-#, python-brace-format
 msgid "{} amount of this in-transaction fraction"
 msgstr "__test_{} amount of this in-transaction fraction"
 
-#, python-brace-format
 msgid "{} amount of this taxable event fraction"
 msgstr "__test_{} amount of this taxable event fraction"
 
-#, python-brace-format
 msgid "{} cost basis of this in-transaction fraction"
 msgstr "__test_{} cost basis of this in-transaction fraction"
 
-#, python-brace-format
 msgid "{} fee of this in-transaction fraction"
 msgstr "__test_{} fee of this in-transaction fraction"
 
-#, python-brace-format
 msgid "{} value of the fees"
 msgstr "__test_{} value of the fees"
 
-#, python-brace-format
 msgid "{} value of the transaction with fees"
 msgstr "__test_{} value of the transaction with fees"
 
-#, python-brace-format
 msgid "{} value of the transaction without fees"
 msgstr "__test_{} value of the transaction without fees"
 
-#, python-brace-format
 msgid "{}_Summary"
 msgstr "__test_{}_Summary"
 
-#, python-brace-format
 msgid "{}_{}"
 msgstr "__test_{}_{}"
 
@@ -960,4 +764,3 @@ msgstr "__test_{}_{}"
 
 #~ msgid "US dollar value of the fees"
 #~ msgstr "__test_US dollar value of the fees"
-

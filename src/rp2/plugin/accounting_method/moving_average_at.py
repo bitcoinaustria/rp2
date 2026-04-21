@@ -75,9 +75,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
         if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
-            raise RP2TypeError(
-                f"Internal error: moving_average_at expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}"
-            )
+            raise RP2TypeError(f"Internal error: moving_average_at expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}")
         self.__sync_neu_pools(lot_candidates)
         event_pool: str = pool_id_from_notes(taxable_event.notes if taxable_event is not None else None)
 

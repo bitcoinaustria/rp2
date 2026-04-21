@@ -18,32 +18,16 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-msgid "(transcribe from domestic provider)"
-msgstr ""
-
 msgid "<Crypto> In-Out"
 msgstr "<Crypto> Entrada-Salida"
 
 msgid "<Crypto> Tax"
 msgstr "<Crypto> Impuesto"
 
-msgid "=== Disclaimer ==="
-msgstr ""
-
-msgid "=== Informational ==="
-msgstr ""
-
-msgid "=== Kennzahlen Totals (EUR) ==="
-msgstr ""
-
 msgid "Account Balances"
 msgstr "Saldos de Cuenta"
 
 msgid "Accounting Method"
-msgstr "Metodo de contabilidad"
-
-#, fuzzy
-msgid "Accounting method"
 msgstr "Metodo de contabilidad"
 
 msgid "Acquired"
@@ -70,34 +54,17 @@ msgstr "Precio al contado del lote adquirido"
 msgid "Acquired Lot Timestamp"
 msgstr "Marca de tiempo del lote adquirido"
 
-#, python-brace-format
 msgid "Acquired Lot {}"
 msgstr "Lote adquirido {}"
 
-#, python-brace-format
 msgid "Acquired Lot {} Amount Fraction"
 msgstr "Lote adquirido {} Cantidad de Fracción"
 
-#, python-brace-format
 msgid "Acquired Lot {} Cost Basis"
 msgstr "Lote adquirido {} Base de costo"
 
-#, python-brace-format
 msgid "Acquired Lot {} Fee Fraction"
 msgstr "Lote adquirido {} Fracción de comisión"
-
-#, fuzzy
-msgid "Acquired lot ID"
-msgstr "Lote adquirido"
-
-msgid "Acquisition date"
-msgstr ""
-
-msgid "Altvermoegen Disposals"
-msgstr ""
-
-msgid "Altvermoegen tax-free (>= 1 year holding)"
-msgstr ""
 
 msgid "Amount"
 msgstr "Cantidad"
@@ -111,9 +78,6 @@ msgstr "Cantidad del activo retenido"
 msgid "Asset"
 msgstr "Activo"
 
-msgid "Asset (outgoing)"
-msgstr ""
-
 msgid "Asset - Exchange"
 msgstr "Activo - Intercambio"
 
@@ -122,9 +86,6 @@ msgstr "Tabla de búsqueda de precios de activos"
 
 msgid "Asset holder"
 msgstr "Poseedor de activo"
-
-msgid "Austrian Tax Report (Muster / informational)"
-msgstr ""
 
 msgid "Average Price"
 msgstr "Precio medio"
@@ -180,14 +141,6 @@ msgstr "Base de costo"
 msgid "Cost Basis Weight %"
 msgstr "Costo Base Peso %"
 
-#, fuzzy
-msgid "Cost basis EUR"
-msgstr "Base de costo"
-
-#, fuzzy
-msgid "Country"
-msgstr "Cantidad"
-
 msgid "Crypto"
 msgstr "Criptomoneda"
 
@@ -236,10 +189,6 @@ msgstr "Criptomoneda enviada"
 msgid "Crypto Taxable Total"
 msgstr "Total imponible por criptomonedas"
 
-#, fuzzy
-msgid "Crypto amount"
-msgstr "Cantidad de criptomoneda"
-
 msgid "Crypto amount for the given taxable event fraction"
 msgstr "Cantidad de criptomoneda para la parte de evento imponible dada"
 
@@ -260,12 +209,6 @@ msgstr "Sentido (ENTRADA/SALIDA/INTRA) y tipo (COMPRA, VENDIDA, etc) del hecho i
 
 msgid "Direction/Type"
 msgstr "Dirección/Tipo"
-
-msgid "Disposal Tx ID"
-msgstr ""
-
-msgid "Disposal date"
-msgstr ""
 
 msgid "Does the transaction contain a taxable event? If so the taxable amount is highlighted in yellow"
 msgstr "¿La transacción contiene un evento imponible? Si es así, la cantidad imponible se resalta en amarillo"
@@ -306,12 +249,6 @@ msgstr "Intercambio o billetera donde se mantiene el saldo (Activo: solo en la p
 msgid "Fee Fraction"
 msgstr "Fracción de comisión"
 
-msgid "Fiat currency"
-msgstr ""
-
-msgid "Fiat value EUR"
-msgstr ""
-
 msgid "Fill in Asset Prices in the Input Tab for calculations"
 msgstr "Complete los precios de los activos en la pestaña de entrada para los cálculos"
 
@@ -323,9 +260,6 @@ msgstr "Saldo final"
 
 msgid "Final balance of all transactions for a given exchange and holder"
 msgstr "Saldo final de todas las transacciones para un intercambio y titular dados"
-
-msgid "FinanzOnline"
-msgstr ""
 
 msgid "Fraction %"
 msgstr "% de la Fracción"
@@ -357,10 +291,6 @@ msgstr "Detalle de Ganancia / Pérdida"
 msgid "Gain / Loss Summary"
 msgstr "Resumen de Ganancia / Pérdida"
 
-#, fuzzy
-msgid "Gain/Loss EUR"
-msgstr "% de Ganancia / Pérdida"
-
 msgid "Gains"
 msgstr "Ganancias"
 
@@ -385,9 +315,6 @@ msgstr "Hash o identificador único específico del intercambio para la transacc
 msgid "Holder"
 msgstr "Titular"
 
-msgid "Holding days"
-msgstr ""
-
 msgid "How much of the given cryptocurrency was acquired with the transaction"
 msgstr "Cuánta criptomoneda se adquirió con la transacción"
 
@@ -402,9 +329,6 @@ msgstr "Entrada"
 
 msgid "In-Flow Detail"
 msgstr "Detalle del Flujo de Entrada"
-
-msgid "Income (Kz 172)"
-msgstr ""
 
 msgid "Indicates the percent of which this asset's unrealized gain/loss contributed to the whole portfolio's Unrealized Gain / Loss % (Gain/Loss relative to total cash investment)"
 msgstr "Indica el porcentaje en el que la ganancia/pérdida no realizada de este activo contribuyó al porcentaje de ganancia/pérdida no realizada total de la cartera (ganancia/pérdida relativa a la inversión en efectivo total)"
@@ -424,29 +348,11 @@ msgstr "Precio de entrada"
 msgid "Intra-Flow Detail"
 msgstr "Detalle de Intra-Flujo"
 
-msgid "Kennzahl"
-msgstr ""
-
-msgid "Kz 172 - Laufende Einkuenfte (foreign)"
-msgstr ""
-
-msgid "Kz 174 - Realized gains Neuvermoegen (foreign)"
-msgstr ""
-
-msgid "Kz 176 - Losses Neuvermoegen (foreign, positive magnitude)"
-msgstr ""
-
-msgid "Kz 801 - Spekulationsgeschaefte (Altvermoegen < 1 year, net)"
-msgstr ""
-
 msgid "LONG"
 msgstr "LARGO"
 
 msgid "LONG (> 1 year) or SHORT (< 1 year)"
 msgstr "LARGO (> 1 año) o CORTO (< 1 año)"
-
-msgid "Label"
-msgstr ""
 
 msgid "Legend"
 msgstr "Leyenda"
@@ -468,12 +374,6 @@ msgstr "NO"
 
 msgid "Name of the exchange or wallet account holder"
 msgstr "Nombre del titular de la cuenta de intercambio o billetera"
-
-msgid "Neuvermoegen Disposals"
-msgstr ""
-
-msgid "Neuvermoegen tax-neutral swaps (count)"
-msgstr ""
 
 msgid "No Fee"
 msgstr "Sin comisión"
@@ -499,7 +399,6 @@ msgstr "Propietario de la cuenta de intercambio o billetera desde la cual se rea
 msgid "Owner of the exchange account or wallet to which the transfer of crypto occurred"
 msgstr "Propietario de la cuenta de intercambio o billetera a la cual se realizó la transferencia de criptomonedas"
 
-#, python-brace-format
 msgid "Paid Per 1 {}"
 msgstr "Pagado por 1 {}"
 
@@ -512,28 +411,8 @@ msgstr "Porcentaje de la transacción entrante"
 msgid "Percentage of the taxable event"
 msgstr "Porcentaje del evento gravable"
 
-msgid "Period from"
-msgstr ""
-
-msgid "Period to"
-msgstr ""
-
-#, fuzzy
-msgid "Pool cost basis carried EUR"
-msgstr "Porcentaje del costo base total"
-
 msgid "Price"
 msgstr "Precio"
-
-msgid "Proceeds EUR"
-msgstr ""
-
-msgid "Proceeds EUR (zero gain by construction)"
-msgstr ""
-
-#, fuzzy
-msgid "Receipt date"
-msgstr "Recibido"
 
 msgid "Received"
 msgstr "Recibido"
@@ -574,7 +453,6 @@ msgstr "Enviado/Vendido"
 msgid "Sheet Types"
 msgstr "Tipos de hoja"
 
-#, python-brace-format
 msgid "Size of investment relative to other assets for cost basis ({} Unrealized Cost Basis divided by the sum of all assets' {} Unrealized Cost Basis)"
 msgstr "Tamaño de la inversión en relación con otros activos para la base de costo ({} Base de costo no realizada dividida por la suma de todas las bases de costo no realizadas de los activos {})"
 
@@ -584,25 +462,15 @@ msgstr "Tamaño de la inversión en relación con el valor no realizado de la ca
 msgid "Spot Price"
 msgstr "Precio spot"
 
-#, fuzzy
-msgid "Spot price EUR"
-msgstr "Precio spot"
-
-msgid "Status"
-msgstr ""
-
-#, python-brace-format
 msgid "Sum of all capital gains in {} for transactions of the given capital gains type"
 msgstr "Suma de todas las ganancias de capital en {} para transacciones del tipo de ganancias de capital dado"
 
-#, python-brace-format
 msgid "Sum of all cost bases in {} for transactions of the given capital gains type"
 msgstr "Suma de todas las bases de costo en {} para transacciones del tipo de ganancias de capital dado"
 
 msgid "Sum of all taxable events in crypto for transactions of the given capital gains type"
 msgstr "Suma de todos los eventos imponibles en cripto para transacciones del tipo de ganancias de capital dado"
 
-#, python-brace-format
 msgid "Sum of all taxable events in {} for transactions of the given capital gains type"
 msgstr "Suma de todos los eventos imponibles en {} para transacciones del tipo de ganancias de capital dado"
 
@@ -617,22 +485,6 @@ msgstr "Resumen"
 
 msgid "Summary year"
 msgstr "Año de resumen"
-
-msgid "Swap date"
-msgstr ""
-
-msgid "Swap link (at_swap_link)"
-msgstr ""
-
-msgid "Swaps (Neu, tax-neutral)"
-msgstr ""
-
-msgid "TAX-FREE"
-msgstr ""
-
-#, fuzzy
-msgid "TAXABLE (Kz 801)"
-msgstr "Imponible"
 
 msgid "Table Types"
 msgstr "Tipos de tabla"
@@ -658,11 +510,9 @@ msgstr "Precio spot de evento imponible"
 msgid "Taxable Event Timestamp"
 msgstr "Marca de tiempo de evento imponible"
 
-#, python-brace-format
 msgid "Taxable Event {}"
 msgstr "Evento imponible {}"
 
-#, python-brace-format
 msgid "Taxable Event {} Amount Fraction"
 msgstr "Cantidad de Fracción del evento imponible {}"
 
@@ -671,9 +521,6 @@ msgstr "Total imponible"
 
 msgid "This file contains two versions of the same report. One version is grouped by Asset, the other by Asset and Exchange (or wallet)"
 msgstr "Este archivo contiene dos versiones del mismo informe. Una versión se agrupa por activo y la otra por activo e intercambio (o billetera)."
-
-msgid "This report is an automated summary of imported transactions under the assumption that all disposals are foreign (auslaendisch). Kennzahlen 171/173 (inlaendisch, CASP-withheld) are left blank and must be transcribed manually from the domestic provider's own tax statement. Have a Steuerberater review this output before filing on FinanzOnline."
-msgstr ""
 
 msgid "This report leverages the details of your transactions to give you a snapshot of the value of your unsold holdings"
 msgstr "Este informe utiliza los detalles de sus transacciones para darle una instantánea del valor de sus tenencias no vendidas."
@@ -711,18 +558,11 @@ msgstr "Transacción"
 msgid "Transaction Type"
 msgstr "Tipo de transacción"
 
-#, fuzzy
-msgid "Transaction type"
-msgstr "Tipo de transacción"
-
 msgid "Transactions that added new crypto to accounts (e.g. buy, etc.). Only EARN-typed transactions are taxable events (interest received on crypto)"
 msgstr "Transacciones que agregaron nueva criptomoneda a las cuentas (compra, etc.). Solo las transacciones de tipo EARN son eventos imponibles (intereses recibidos en criptomoneda)."
 
 msgid "Transactions that removed some crypto from accounts (e.g. sell, send as gift, etc.). These are taxable events"
 msgstr "Transacciones que eliminaron cierta criptomoneda de las cuentas (venta, envío como regalo, etc.). Estos son eventos imponibles."
-
-msgid "Tx ID"
-msgstr ""
 
 msgid "Type"
 msgstr "Tipo"
@@ -752,10 +592,6 @@ msgid "Unrealized Value - Unrealized Cost Basis"
 msgstr "Valor no realizado - Costo base no realizado"
 
 msgid "Value"
-msgstr "Valor"
-
-#, fuzzy
-msgid "Value (EUR)"
 msgstr "Valor"
 
 msgid "Value Weight %"
@@ -818,9 +654,6 @@ msgstr "impuesto"
 msgid "interest"
 msgstr "interes"
 
-msgid "lost"
-msgstr ""
-
 msgid "mining"
 msgstr "minado"
 
@@ -836,119 +669,89 @@ msgstr "staking"
 msgid "wages"
 msgstr "salarios"
 
-#, python-brace-format
 msgid "{}"
 msgstr "{}"
 
-#, python-brace-format
 msgid "{} Fee"
 msgstr "{} Comisión"
 
-#, python-brace-format
 msgid "{} In"
 msgstr "{} Entrada"
 
-#, python-brace-format
 msgid "{} In No Fee"
 msgstr "{} Entrada sin comisión"
 
-#, python-brace-format
 msgid "{} In With Fee"
 msgstr "{} Entrada con comisión"
 
-#, python-brace-format
 msgid "{} In-Out"
 msgstr "{} Entrada-Salida"
 
-#, python-brace-format
 msgid "{} Out"
 msgstr "{} Salida"
 
-#, python-brace-format
 msgid "{} Per Unit"
 msgstr "{} Por unidad"
 
-#, python-brace-format
 msgid "{} Per Unit Cost Basis"
 msgstr "{} Costo base por unidad"
 
-#, python-brace-format
 msgid "{} Per Unit Input Price"
 msgstr "{} Precio de entrada por unidad"
 
-#, python-brace-format
 msgid "{} Tax"
 msgstr "{} Impuesto"
 
-#, python-brace-format
 msgid "{} Taxable Total"
 msgstr "{} Total gravable"
 
-#, python-brace-format
 msgid "{} Total"
 msgstr "{} Total"
 
-#, python-brace-format
 msgid "{} Total Cost Basis"
 msgstr "{} Costo base total"
 
-#, python-brace-format
 msgid "{} Unrealized"
 msgstr "{} No realizado"
 
-#, python-brace-format
 msgid "{} Unrealized Cost Basis"
 msgstr "{} Costo base no realizado"
 
-#, python-brace-format
 msgid "{} Unrealized Gain / Loss"
 msgstr "{} Ganancia / Pérdida no realizada"
 
-#, python-brace-format
 msgid "{} Unrealized Gain / Loss %"
 msgstr "{} Porcentaje de ganancia / pérdida no realizada"
 
-#, python-brace-format
 msgid "{} Unrealized Value"
 msgstr "{} Valor no realizado"
 
-#, python-brace-format
 msgid "{} Unrealized Value Weight %"
 msgstr "{} Porcentaje de peso del valor no realizado"
 
-#, python-brace-format
 msgid "{} amount of this in-transaction fraction"
 msgstr "{} cantidad de esta fracción de transacción de entrada"
 
-#, python-brace-format
 msgid "{} amount of this taxable event fraction"
 msgstr "{} cantidad de esta fracción de evento gravable"
 
-#, python-brace-format
 msgid "{} cost basis of this in-transaction fraction"
 msgstr "{} costo base de esta fracción de transacción de entrada"
 
-#, python-brace-format
 msgid "{} fee of this in-transaction fraction"
 msgstr "{} comisión de esta fracción de transacción de entrada"
 
-#, python-brace-format
 msgid "{} value of the fees"
 msgstr "{} valor de las comisiónes"
 
-#, python-brace-format
 msgid "{} value of the transaction with fees"
 msgstr "{} valor de la transacción con comisiónes"
 
-#, python-brace-format
 msgid "{} value of the transaction without fees"
 msgstr "{} valor de la transacción sin comisiónes"
 
-#, python-brace-format
 msgid "{}_Summary"
 msgstr "{}_Resumen"
 
-#, python-brace-format
 msgid "{}_{}"
 msgstr "{}_{}"
-

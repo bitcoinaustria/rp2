@@ -26,7 +26,6 @@ from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2TypeError
 
-
 # Single conventional pool id used by the generic moving-average method. Regime-aware
 # methods (e.g. moving_average_at) use their own pool ids; this module is agnostic.
 _DEFAULT_POOL: str = "default"
@@ -60,9 +59,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event: Optional[AbstractTransaction] = None,
     ) -> Optional[AcquiredLotAndAmount]:
         if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
-            raise RP2TypeError(
-                f"Internal error: moving_average expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}"
-            )
+            raise RP2TypeError(f"Internal error: moving_average expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}")
         self.__sync_pool(lot_candidates)
 
         fifo_result: Optional[AcquiredLotAndAmount] = super().seek_non_exhausted_acquired_lot(lot_candidates, taxable_event_amount, taxable_event)
