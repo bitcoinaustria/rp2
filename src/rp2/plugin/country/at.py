@@ -15,12 +15,16 @@
 
 import sys
 from datetime import datetime
+from enum import Enum
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
 from rp2.abstract_country import AbstractCountry
 from rp2.abstract_transaction import AbstractTransaction
+from rp2.entry_types import TransactionType
+from rp2.gain_loss import GainLoss
 from rp2.in_transaction import InTransaction
+from rp2.rp2_decimal import ZERO
 from rp2.rp2_main import rp2_main
 
 # Austrian Altvermögen/Neuvermögen cutoff per § 27b EStG: anything acquired on or before
@@ -33,8 +37,9 @@ REGIME_NEU: str = "neu"
 _REGIME_MARKER_ALT: str = "at_regime=alt"
 _REGIME_MARKER_NEU: str = "at_regime=neu"
 
-# Crypto-to-crypto swap marker (§ 27b Abs 3 Z 2 EStG: tax-neutral for Neuvermögen). Both the
-# accounting method and the report plugin depend on this marker; keep it in one place.
+# Crypto-to-crypto swap marker (§ 27b Abs 3 Z 2 EStG: tax-neutral for Neuvermögen). The
+# accounting method consumes this; consumers that want to bucket swaps in their reporting
+# layer (e.g. Kassiber) re-read it via `has_swap_link` / `swap_link_id`.
 AT_SWAP_MARKER: str = "at_swap_link="
 
 # Pool identity marker (§ 2 KryptowährungsVO: moving average is applied per pool). Kassiber
@@ -47,6 +52,32 @@ AT_DEFAULT_POOL: str = "default"
 # Spekulationsfrist threshold for Altvermögen disposals (private-investor § 31 regime).
 AT_SPEKULATIONSFRIST_DAYS: int = 365
 
+# BMF income classification of crypto earn events:
+# * Kz 175 (Einkünfte aus der Überlassung von Kryptowährungen): lending/staking — user
+#   gives crypto to a third party for a return.
+# * Kz 172 (Laufende Einkünfte): everything else rp2 models as an earn event (mining,
+#   airdrops, hardforks, generic income, wages-in-crypto fallback).
+# The category enum below exposes this split; the mapping from semantic category to a BMF
+# Kennzahl code lives in the consumer (Kassiber), because Kennzahl codes can change with
+# tax reforms while the semantic bucketing does not.
+_CAPITAL_YIELD_TRANSACTION_TYPES: frozenset[TransactionType] = frozenset({TransactionType.STAKING, TransactionType.INTEREST})
+
+
+class AtDisposalCategory(Enum):
+    """Semantic Austrian bucketing of a GainLoss row.
+
+    These are engine-level categories; the presentation layer (Kassiber) maps them onto the
+    specific BMF Kennzahlen the taxpayer transcribes into FinanzOnline.
+    """
+
+    INCOME_GENERAL = "income_general"  # earn event, non-lending/staking (currently Kz 172)
+    INCOME_CAPITAL_YIELD = "income_capital_yield"  # lending/staking (currently Kz 175)
+    NEU_GAIN = "neu_gain"  # realized gain on Neuvermögen (currently Kz 174)
+    NEU_LOSS = "neu_loss"  # realized loss on Neuvermögen (currently Kz 176, positive magnitude)
+    NEU_SWAP = "neu_swap"  # tax-neutral crypto-to-crypto swap on Neuvermögen (excluded from all Kennzahlen)
+    ALT_SPEKULATION = "alt_spekulation"  # Altvermögen disposal within Spekulationsfrist (currently Kz 801)
+    ALT_TAXFREE = "alt_taxfree"  # Altvermögen disposal past Spekulationsfrist (no Kennzahl)
+
 
 def _marker_value(notes: Optional[str], marker: str) -> Optional[str]:
     if not notes:
@@ -54,7 +85,7 @@ def _marker_value(notes: Optional[str], marker: str) -> Optional[str]:
     idx: int = notes.find(marker)
     if idx < 0:
         return None
-    rest: str = notes[idx + len(marker):]
+    rest: str = notes[idx + len(marker) :]
     for sep in (" ", "\t", "\n", ","):
         cut: int = rest.find(sep)
         if cut >= 0:
@@ -122,6 +153,31 @@ def has_swap_link(event: Optional[AbstractTransaction]) -> bool:
     return AT_SWAP_MARKER in event.notes
 
 
+def classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory:
+    """Route a GainLoss to its Austrian semantic category.
+
+    Earn events (no `acquired_lot`) split on transaction type: STAKING/INTEREST go to
+    INCOME_CAPITAL_YIELD (currently Kz 175), everything else to INCOME_GENERAL (currently
+    Kz 172). Disposals route on regime: Neu disposals marked `at_swap_link=<id>` are
+    tax-neutral (NEU_SWAP), other Neu disposals split on sign into NEU_GAIN/NEU_LOSS. Alt
+    disposals split on the 365-day Spekulationsfrist: >= threshold → ALT_TAXFREE, else
+    ALT_SPEKULATION.
+    """
+    if gain_loss.acquired_lot is None:
+        if gain_loss.taxable_event.transaction_type in _CAPITAL_YIELD_TRANSACTION_TYPES:
+            return AtDisposalCategory.INCOME_CAPITAL_YIELD
+        return AtDisposalCategory.INCOME_GENERAL
+    regime: str = classify_lot_regime(gain_loss.acquired_lot)
+    if regime == REGIME_NEU:
+        if has_swap_link(gain_loss.taxable_event):
+            return AtDisposalCategory.NEU_SWAP
+        return AtDisposalCategory.NEU_GAIN if gain_loss.fiat_gain >= ZERO else AtDisposalCategory.NEU_LOSS
+    holding_days: int = (gain_loss.taxable_event.timestamp - gain_loss.acquired_lot.timestamp).days
+    if holding_days >= AT_SPEKULATIONSFRIST_DAYS:
+        return AtDisposalCategory.ALT_TAXFREE
+    return AtDisposalCategory.ALT_SPEKULATION
+
+
 # Austria-specific class
 class AT(AbstractCountry):
     def __init__(self) -> None:
@@ -146,22 +202,20 @@ class AT(AbstractCountry):
     def get_accounting_methods(self) -> Set[str]:
         return {"fifo", "moving_average", "moving_average_at"}
 
-    # Default set of generators to use if the user doesn't specify them on the command line.
-    # `rp2_full_report` is intentionally NOT in the default set: its long/short split relies on
-    # `get_long_term_capital_gain_period()`, which we disable (sys.maxsize) because Austria has
-    # no generic day-threshold. Including it here would emit a misleading "all short-term"
-    # report for Altvermögen. Users can still request it explicitly via `-g rp2_full_report`.
+    # Default set of generators when the user doesn't specify any on the command line. AT
+    # ships only `open_positions` from rp2; the BMF E 1kv layout and Kennzahlen aggregation
+    # live in Kassiber (the primary consumer per AGENTS.md), which imports `classify_disposal`
+    # + `AtDisposalCategory` to bucket rows without re-implementing Austrian tax semantics.
+    # `rp2_full_report` is intentionally excluded: its long/short split relies on
+    # `get_long_term_capital_gain_period()` which we disable (sys.maxsize), so it would emit
+    # a misleading "all short-term" report. Users can still request it explicitly via `-g`.
     def get_report_generators(self) -> Set[str]:
-        return {
-            "open_positions",
-            "at.tax_report_at",
-        }
+        return {"open_positions"}
 
-    # Default language to use at report generation if the user doesn't specify it on the
-    # command line. Austrian taxpayers transcribe values into a German FinanzOnline form,
-    # so the de_AT catalog is the natural default. Users can still request `-g en`.
+    # Default language at report generation when the user doesn't specify `-g`. Kassiber
+    # owns the German-language Austrian report; rp2's generators fall back to English.
     def get_default_generation_language(self) -> str:
-        return "de_AT"
+        return "en"
 
 
 # Austria-specific entry point

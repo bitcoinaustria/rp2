@@ -31,8 +31,8 @@ The implementation proceeds in phases, each a reviewable commit. Core changes ar
 2. **Phase 2 — Moving-average engine.** `moving_average_at` accounting method. Expected minimal core touch: let the accounting method return an optional per-disposal cost-basis override alongside the selected lot (e.g. an extra field on `AcquiredLotAndAmount`), and thread it through `GainLoss` construction so the pool's running average overrides the per-lot cost basis without invalidating the lot-pairing audit trail.
 3. **Phase 3 — Alt/Neu split.** The Austrian method reads an `at_regime=alt|neu` marker from `transaction.notes`. Altvermögen path: per-lot FIFO + 365-day Spekulationsfrist. Neuvermögen path: moving average per pool. Both paths emit standard `GainLoss` objects tied to real `InTransaction` lots.
 4. **Phase 4 — Swap neutrality (outgoing side only on RP2).** Paired crypto-to-crypto swaps use `at_swap_link=<id>` in notes. The Austrian method emits a zero-gain `GainLoss` on the outgoing Neu leg and depletes the pool at the running average. The incoming leg's basis carry is Kassiber's responsibility (see the handoff contract above). Until Kassiber implements basis carry + paired emission, this phase is considered incomplete end-to-end.
-5. **Phase 5 — E 1kv report generator.** `src/rp2/plugin/report/at/tax_report_at.py`. Emits Kennzahlen 172/174/175/176/801 for foreign (auslaendisch) provider flows; 171/173 are transcription placeholders because RP2 cannot compute CASP-withheld domestic income. Kz 175 is routed from STAKING/INTEREST transaction types; 172 catches the remaining earn-typed events. Sheet output is built directly with `ezodf.newdoc` — a template-based rewrite using `AbstractODSGenerator` is tracked as an architectural follow-up.
-6. **Phase 6 — `de_AT` localization.** `pybabel init -l de_AT` + translate AT-specific report strings; generic `rp2_full_report` strings are deliberately left untranslated because `rp2_full_report` is not in AT's default generator set (its long/short-term split assumes a day-threshold, which AT disables).
+5. **Phase 5 — E 1kv report generator.** ~~`src/rp2/plugin/report/at/tax_report_at.py`~~ — **rolled back in Phase 9.** Original phase emitted Kennzahlen 172/174/175/176/801 from an rp2 generator; ownership moved to Kassiber because E 1kv layout is a presentation concern and RP2 is the tax engine.
+6. **Phase 6 — `de_AT` localization.** ~~`pybabel init -l de_AT` + translate AT-specific report strings.~~ — **rolled back in Phase 9.** The catalog existed primarily for `tax_report_at`; with that generator gone, de_AT presentation lives in Kassiber.
 
 ## Austrian-specific conventions
 
@@ -40,9 +40,9 @@ All markers are carried in the `notes` field of `InTransaction` / `OutTransactio
 
 | Marker | Shape | Who reads it | What happens |
 | --- | --- | --- | --- |
-| `at_regime=alt` / `at_regime=neu` | flag, no id | `moving_average_at`, `tax_report_at` | Forces the regime for the lot or disposal, overriding the 2021-03-01 Europe/Vienna date cutoff. |
+| `at_regime=alt` / `at_regime=neu` | flag, no id | `moving_average_at`, Kassiber | Forces the regime for the lot or disposal, overriding the 2021-03-01 Europe/Vienna date cutoff. |
 | `at_pool=<id>` | key=value, id is free-form | `moving_average_at` (Neu only) | Partitions the Neuvermögen moving-average pool. Lots and disposals with the same `<id>` share one running average. Absent marker → `"default"` pool. Ignored for Alt (universal FIFO). |
-| `at_swap_link=<id>` | key=value, id required non-empty | `moving_average_at` (Neu only), `tax_report_at` | Marks one leg of a matched crypto-to-crypto swap. On Neu disposals, forces cost basis = proceeds → zero gain. On Alt disposals, the marker is **ignored** (Austrian law treats Alt swaps as regime-breaking taxable disposals). |
+| `at_swap_link=<id>` | key=value, id required non-empty | `moving_average_at` (Neu only), Kassiber | Marks one leg of a matched crypto-to-crypto swap. On Neu disposals, forces cost basis = proceeds → zero gain. On Alt disposals, the marker is **ignored** (Austrian law treats Alt swaps as regime-breaking taxable disposals). |
 
 **Disambiguation.** A disposal with no `at_regime` marker is routed by lot availability: only Alt available → consume Alt; only Neu available → consume Neu. If both regimes have lots for the disposal's pool, RP2 raises `RP2ValueError` — Kassiber must tag the disposal. There is no silent "Alt first" preference.
 
@@ -51,6 +51,26 @@ All markers are carried in the `notes` field of `InTransaction` / `OutTransactio
 **Empty-id rejection.** `at_swap_link=` with no value after the `=` raises `RP2ValueError` — it almost always indicates a Kassiber bug (forgetting to interpolate the id).
 
 These conventions keep RP2's public types unchanged, so the Austrian path is an additive overlay.
+
+## Kassiber handoff surface
+
+Since Phase 9 RP2 is the Austrian tax **engine** only; layout, Kennzahlen aggregation, and de_AT presentation live in Kassiber. The stable API Kassiber imports from `rp2.plugin.country.at`:
+
+**Classification**
+- `classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory` — routes any `GainLoss` to its semantic Austrian category. Encapsulates the regime + Spekulationsfrist + swap-neutrality + earn-split rules so Kassiber does not re-implement them.
+- `AtDisposalCategory` enum: `INCOME_GENERAL` (currently Kz 172), `INCOME_CAPITAL_YIELD` (currently Kz 175), `NEU_GAIN` (currently Kz 174), `NEU_LOSS` (currently Kz 176), `NEU_SWAP` (no Kennzahl), `ALT_SPEKULATION` (currently Kz 801), `ALT_TAXFREE` (no Kennzahl). Mapping category → BMF Kennzahl code lives in Kassiber because the codes can change across tax reforms while the semantic bucketing does not.
+
+**Regime + marker primitives** (used by `classify_disposal` internally; also public for finer-grained consumers)
+- `classify_lot_regime(lot: InTransaction) -> str` — returns `REGIME_ALT` or `REGIME_NEU` by marker or date-fallback.
+- `pool_id_from_notes(notes: Optional[str]) -> str`
+- `has_swap_link(event: Optional[AbstractTransaction]) -> bool`
+- `swap_link_id(event: Optional[AbstractTransaction]) -> Optional[str]`
+- `event_has_explicit_regime` / `explicit_event_regime` (for Alt/Neu disambiguation on disposal events).
+
+**Constants**
+- `REGIME_ALT`, `REGIME_NEU`, `AT_NEU_CUTOFF`, `AT_SPEKULATIONSFRIST_DAYS`, `AT_POOL_MARKER`, `AT_SWAP_MARKER`, `AT_DEFAULT_POOL`.
+
+Kassiber iterates `ComputedData.gain_loss_set`, calls `classify_disposal` per row, groups by category, and renders the E 1kv layout — formatting, styling, German labels, and FinanzOnline transcription sheet are all on Kassiber's side. The `moving_average_at` method produces correct per-disposal `GainLoss` rows with pool-preserving Neu swaps and Alt FIFO basis regardless of how the output is rendered.
 
 ## Design rules (from [README.dev.md](README.dev.md))
 
@@ -101,7 +121,6 @@ LOG_LEVEL=DEBUG rp2_at -o output -p at_example_ config/crypto_example.ini input/
 ## Known gaps and non-goals
 
 - **Swap neutrality is only half-implemented end-to-end.** The rp2 side emits a zero-gain `GainLoss` on the outgoing Neu leg and keeps the pool average invariant (Phase 4 complete on rp2). The incoming side — pairing legs across assets and synthesizing the destination `InTransaction` with the carried basis — lives in Kassiber and is not implemented yet. Until Kassiber lands that, Austrian swap handling is dark-launched.
-- **Kassiber-side alignment is outstanding.** Kassiber's `tax_policy.py` still advertises `fifo` + generic reports for AT and rejects Austrian profiles in tests. The marker emission layer (`at_regime`, `at_pool`, `at_swap_link`) does not exist on the Kassiber side. Lifting the rejection guard without these changes would silently route AT through Kassiber's stale defaults instead of rp2's Austrian plugin.
-- **Report template.** `tax_report_at` builds sheets programmatically instead of using an ODS template under `plugin/report/data/at/`. This works but deviates from the rp2 plugin convention; a rewrite on `AbstractODSGenerator` is a follow-up.
-- **Kz 171/173 (inländisch, CASP-withheld)** are transcription placeholders — the numbers come from the domestic provider's own Steuerbescheinigung, not from the imported transaction feed.
+- **Kassiber-side alignment is outstanding.** Kassiber's `tax_policy.py` still advertises `fifo` + generic reports for AT and rejects Austrian profiles in tests. The marker emission layer (`at_regime`, `at_pool`, `at_swap_link`) plus the E 1kv rendering (consuming `classify_disposal` + `AtDisposalCategory` from `rp2.plugin.country.at`) do not exist on the Kassiber side. Lifting the rejection guard without these changes would silently route AT through Kassiber's stale defaults instead of rp2's Austrian plugin.
+- **E 1kv layout is not in rp2.** Since Phase 9 the BMF-aligned summary, FinanzOnline transcription sheet, and de_AT presentation are Kassiber's responsibility. CLI-only users of `rp2_at` get `open_positions` only; for an Austrian tax report they need Kassiber.
 - This fork does **not** plan to host FinanzOnline filing, Regelbesteuerungsoption computation, Betriebsvermögen handling, NFT/asset-backed-token treatment, or multi-year crypto loss carryforward — per Kassiber scope.
