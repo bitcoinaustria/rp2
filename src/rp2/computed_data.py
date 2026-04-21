@@ -14,7 +14,7 @@
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Dict, List, Set, cast
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 from rp2.abstract_entry import AbstractEntry
 from rp2.balance import BalanceSet
@@ -119,14 +119,16 @@ class ComputedData:
         return instance
 
     @staticmethod
-    def _compute_price_per_unit(unfiltered_in_transaction_set: TransactionSet, to_date: date) -> RP2Decimal:
+    def _compute_price_per_unit(input_data: InputData, to_date: date) -> RP2Decimal:
         crypto_in_running_sum: RP2Decimal = ZERO
         fiat_in_with_fee_running_sum: RP2Decimal = ZERO
-        for entry in unfiltered_in_transaction_set:
+        for entry in input_data.unfiltered_in_transaction_set:
             # from_date is not used when computing average price per unit (because we always start from the beginning): only to_date is relevant.
             if entry.timestamp.date() > to_date:
                 break
             transaction: InTransaction = cast(InTransaction, entry)
+            if input_data.is_intra_backed_artificial_in_transaction(transaction):
+                continue
             crypto_in_running_sum += transaction.crypto_in
             fiat_in_with_fee_running_sum += transaction.fiat_in_with_fee
         return fiat_in_with_fee_running_sum / crypto_in_running_sum if crypto_in_running_sum is not ZERO else ZERO
@@ -208,6 +210,8 @@ class ComputedData:
         TransactionSet.type_check("taxable_event_set", unfiltered_taxable_event_set, EntrySetType.MIXED, asset, True)
         GainLossSet.type_check("gain_loss_set", unfiltered_gain_loss_set)
 
+        self.__unfiltered_taxable_event_set: TransactionSet = unfiltered_taxable_event_set
+        self.__unfiltered_gain_loss_set: GainLossSet = unfiltered_gain_loss_set
         self.__filtered_taxable_event_set: TransactionSet = unfiltered_taxable_event_set.duplicate(from_date=from_date, to_date=to_date)
         self.__filtered_gain_loss_set: GainLossSet = unfiltered_gain_loss_set.duplicate(from_date=from_date, to_date=to_date)
 
@@ -218,9 +222,10 @@ class ComputedData:
         self.__filtered_in_transaction_set: TransactionSet = input_data.filtered_in_transaction_set
         self.__filtered_intra_transaction_set: TransactionSet = input_data.filtered_intra_transaction_set
         self.__filtered_out_transaction_set: TransactionSet = input_data.filtered_out_transaction_set
+        self.__in_transaction_2_actual_amount: Dict[InTransaction, RP2Decimal] = input_data.in_transaction_2_actual_amount
 
         self.__filtered_balance_set: BalanceSet = BalanceSet(unfiltered_taxable_event_set.configuration, input_data, to_date)
-        self.__filtered_price_per_unit: RP2Decimal = self._compute_price_per_unit(input_data.unfiltered_in_transaction_set, to_date)
+        self.__filtered_price_per_unit: RP2Decimal = self._compute_price_per_unit(input_data, to_date)
 
         # Compute crypto running sums
         self.__crypto_in_running_sum: Dict[InTransaction, RP2Decimal] = {}
@@ -237,8 +242,9 @@ class ComputedData:
         crypto_fee_running_sum = ZERO
         for entry in input_data.unfiltered_in_transaction_set:
             in_transaction: InTransaction = cast(InTransaction, entry)
-            crypto_running_sum += in_transaction.crypto_in
-            crypto_fee_running_sum += in_transaction.crypto_fee
+            if not input_data.is_intra_backed_artificial_in_transaction(in_transaction):
+                crypto_running_sum += in_transaction.crypto_in
+                crypto_fee_running_sum += in_transaction.crypto_fee
             self.__crypto_in_running_sum[in_transaction] = crypto_running_sum
             self.__crypto_in_fee_running_sum[in_transaction] = crypto_fee_running_sum
 
@@ -363,6 +369,21 @@ class ComputedData:
         """Percentage sold for a given InTransaction instance"""
         InTransaction.type_check("in_transaction", in_transaction)
         return self.__in_lot_sold_percentage[in_transaction] if in_transaction in self.__in_lot_sold_percentage else ZERO
+
+    def has_in_transaction_actual_amounts(self) -> bool:
+        """True if transfer analysis populated per-wallet actual lot amounts."""
+        return bool(self.__in_transaction_2_actual_amount)
+
+    def get_in_transaction_actual_amount(self, in_transaction: InTransaction) -> Optional[RP2Decimal]:
+        """Actual amount represented by an in-transaction, if available."""
+        InTransaction.type_check("in_transaction", in_transaction)
+        if not self.has_in_transaction_actual_amounts():
+            return None
+        return self.__in_transaction_2_actual_amount[in_transaction] if in_transaction in self.__in_transaction_2_actual_amount else in_transaction.crypto_in
+
+    def get_unfiltered_taxable_event_and_gain_loss_set(self) -> Tuple[TransactionSet, GainLossSet]:
+        """Unfiltered taxable-event and gain/loss sets for callers that need pre-window data."""
+        return self.__unfiltered_taxable_event_set, self.__unfiltered_gain_loss_set
 
 
 def _yearly_gain_loss_sort_criteria(yearly_gain_loss: YearlyGainLoss) -> str:
