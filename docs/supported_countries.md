@@ -90,11 +90,21 @@ RP2 support for Spain includes the following features:
 
 ### USA
 RP2 support for the US includes the following features:
-* Accounting methods (note that these methods use [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/), not per-wallet application):
+* Application methods:
+  * universal,
+  * per_wallet.
+* Note: the US plugin currently requires a single application method for the whole run. Year-boundary transitions such as 2024 `universal` -> 2025 `per_wallet` are not yet supported in one run and are rejected explicitly.
+* Accounting methods:
   * [FIFO](https://www.investopedia.com/terms/f/fifo.asp),
   * [LIFO](https://www.investopedia.com/terms/l/lifo.asp),
   * [HIFO](https://www.investopedia.com/terms/h/hifo.asp),
   * LOFO.
+* Transfer methods for per-wallet application:
+  * FIFO,
+  * LIFO,
+  * HIFO,
+  * LOFO.
+* Note: if `per_wallet` application is selected and no `transfer_methods` section is provided, RP2 falls back to the earliest configured accounting method. Year-scoped transfer-method transitions are not yet supported in one run and are rejected explicitly.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
   * [tax_report_us](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-us-advisor-friendly-report): tax report meant to be read by tax preparers (in the format of form 8949);

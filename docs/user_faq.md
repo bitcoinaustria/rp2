@@ -90,7 +90,9 @@ The user adds the tokens to the `assets` field of the [config file](input_files.
 Accounting methods vary country by country, as described in the [supported countries](supported_countries.md) document.
 
 ### Do Accounting Methods Use Universal or Per-Wallet Application?
-RP2 engine currently supports [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/) application, however per-wallet support is [being worked on](https://github.com/eprbell/rp2/issues/135).
+RP2 supports both [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/) and per-wallet application, depending on the country plugin. Universal application means there is one queue for each asset across every wallet and exchange. Per-wallet application first partitions the input by wallet, computes taxes independently for each wallet, and then merges the results back into a single output.
+
+Per-wallet support is currently enabled only for countries that opt in (for example the US plugin). At the moment RP2 supports only a single application mode for the whole run: a configuration file can select either `universal` or `per_wallet`, but it cannot switch between them at a year boundary in the same run.
 
 ### Can I Change Accounting Method?
 Yes, for countries that support more than one accounting method, you can select which one to use via the `-m` command line option, or you can use the `accounting_methods` section of the [config file](https://github.com/eprbell/rp2/blob/main/docs/input_files.md#the-config-file).

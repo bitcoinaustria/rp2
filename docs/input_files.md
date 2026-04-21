@@ -111,6 +111,9 @@ The config file is structured as described below. Note that:
 * the `holders` field of the `general` section typically contains only one name, unless multiple people are filing taxes jointly (in which case a comma-separated list is used);
 * the `generators` filed of the `general` section is optional and contains a comma-separated list of names of output generator plugins to use at generation time. If the section is not specified the default plugin set is used;
 * the `accounting_methods` section is optional and contains information on which accounting methods to use on any given year (see an [example](../config/test_data_multi_method.ini));
+* the `application_methods` section is optional and is supported only by countries that opt in to multiple application methods: valid values are country-specific and can include `universal` and `per_wallet`;
+* the `transfer_methods` section is optional and is supported only when `per_wallet` application is selected: it controls how RP2 chooses which lot is moved by an `INTRA` transaction;
+* current limitation: RP2 requires a single application method and a single transfer method for the whole run. If multiple year-scoped values are provided in either section, RP2 rejects the configuration explicitly;
 * *`<...>`* must be substituted with user-provided values (e.g. *`<column_number>`* must be substituted with 0 for column A in the input spreadsheet, 1 for B, etc).
 <pre>
 [in_header]
@@ -163,4 +166,14 @@ generators&#x1F537; = <em>&lt;"generator_1_in_quotes"&gt;</em>, ...&#x1F537; <em
 <em>&lt;"from_year_1"&gt;</em> = <em>&lt;"accounting_method_1"&gt;</em>
 ...&#x1F537;
 <em>&lt;"from_year_n"&gt;</em> = <em>&lt;"accounting_method_n"&gt;</em>&#x1F537;
+
+[application_methods]&#x1F537;
+<em>&lt;"from_year_1"&gt;</em> = <em>&lt;"application_method_1"&gt;</em>
+...&#x1F537;
+<em>&lt;"from_year_n"&gt;</em> = <em>&lt;"application_method_n"&gt;</em>&#x1F537;
+
+[transfer_methods]&#x1F537;
+<em>&lt;"from_year_1"&gt;</em> = <em>&lt;"transfer_method_1"&gt;</em>
+...&#x1F537;
+<em>&lt;"from_year_n"&gt;</em> = <em>&lt;"transfer_method_n"&gt;</em>&#x1F537;
 </pre>
