@@ -13,11 +13,14 @@
 # limitations under the License.
 
 
-from typing import List, Set
+from typing import TYPE_CHECKING, List, Sequence, Set
 
 from pycountry import countries, currencies
 
 from rp2.rp2_error import RP2TypeError, RP2ValueError
+
+if TYPE_CHECKING:
+    from rp2.input_data import InputData
 
 
 class AbstractCountry:
@@ -110,3 +113,12 @@ class AbstractCountry:
     # Set of transfer methods accepted in the country. By default matches the accounting methods set.
     def get_transfer_methods(self) -> Set[str]:
         return self.get_accounting_methods()
+
+    # Cross-asset input validation hook. RP2's per-asset accounting loop cannot see markers on
+    # other assets, so invariants that span assets (e.g. a crypto-to-crypto swap marker that
+    # must appear on both the outgoing and incoming leg across two different assets) need a
+    # pre-accounting pass that sees every asset's unfiltered transactions. Default is no-op;
+    # countries with such invariants override and raise RP2ValueError on violation.
+    def validate_input_data(self, input_data_list: Sequence["InputData"]) -> None:
+        # pylint: disable=unused-argument
+        return

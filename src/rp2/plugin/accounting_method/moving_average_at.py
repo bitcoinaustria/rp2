@@ -22,6 +22,7 @@ from rp2.abstract_accounting_method import (
     PoolAcquiredLotCandidates,
 )
 from rp2.abstract_transaction import AbstractTransaction
+from rp2.entry_types import TransactionType
 from rp2.in_transaction import InTransaction
 from rp2.plugin.country.at import (
     REGIME_ALT,
@@ -132,6 +133,17 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
                 raise RP2ValueError(
                     f"Empty `at_swap_link=` marker on disposal. The id is required so Kassiber can "
                     f"pair the incoming leg and carry the basis. Event: {taxable_event}"
+                )
+            # Swap neutrality is the § 27b Abs 3 Z 2 EStG carveout for crypto-to-crypto *sales*;
+            # tagging a GIFT/DONATE/FEE/LOST/STAKING disposal with `at_swap_link=` would silently
+            # zero out a disposal that has no pairable incoming leg. Cross-asset pairing stays
+            # Kassiber's responsibility (per AGENTS.md), but the same-event kind check is cheap
+            # and rejects the nonsensical combinations before they produce a zero-gain row.
+            if taxable_event.transaction_type != TransactionType.SELL:
+                raise RP2ValueError(
+                    f"`at_swap_link=` marker on non-SELL disposal (transaction_type="
+                    f"{taxable_event.transaction_type.name}). Crypto-to-crypto swap neutrality only "
+                    f"applies to SELL-type disposals. Event: {taxable_event}"
                 )
             # Tax-neutral Neu swap: override cost basis with the disposal's fee-aware per-unit
             # taxable proceeds so the outgoing GainLoss stays exactly at zero gain even when

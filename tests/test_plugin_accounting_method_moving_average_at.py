@@ -362,6 +362,54 @@ class TestMovingAverageAT(unittest.TestCase):
         with self.assertRaisesRegex(RP2ValueError, "Empty `at_swap_link=` marker"):
             self._compute(in_txs, out_txs)
 
+    def test_swap_link_on_gift_raises(self) -> None:
+        # § 27b Abs 3 Z 2 EStG swap neutrality only applies to SELL-type disposals. A GIFT
+        # tagged `at_swap_link=...` has no pairable incoming leg on any other asset, so
+        # honoring the marker would silently zero out a taxable disposal.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+        ]
+        out_txs = [
+            OutTransaction(
+                self._configuration,
+                "2023-03-01 00:00:00 +0000",
+                _ASSET,
+                "Coinbase",
+                "Bob",
+                "GIFT",
+                _rp2_decimal("500"),
+                _rp2_decimal("0.5"),
+                _rp2_decimal("0"),
+                row=2,
+                notes="at_swap_link=gift-bug",
+            ),
+        ]
+        with self.assertRaisesRegex(RP2ValueError, "`at_swap_link=` marker on non-SELL disposal"):
+            self._compute(in_txs, out_txs)
+
+    def test_swap_link_substring_in_unrelated_word_does_not_zero_gain(self) -> None:
+        # Regression: a notes field carrying `prefixed_at_swap_link=foo` (e.g. a ticket id or
+        # a raw exchange memo that happens to embed the marker) must not trigger the Neu swap
+        # neutrality path. Substring-based parsing would have silently produced a zero gain.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),
+        ]
+        out_txs = [
+            self._sell(
+                row=3,
+                timestamp="2023-03-01 00:00:00 +0000",
+                crypto_out="0.5",
+                spot_price="500",
+                notes="prefixed_at_swap_link=foo",
+            ),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        # Pool avg is 200, so cost basis is 100 and gain is 250 - 100 = 150 (NOT zero).
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")
+        self._assert_decimal_equal(gains[0].fiat_gain, "150")
+
     def test_neu_acquisition_after_neu_disposal_moves_average(self) -> None:
         # Phase-2 interleaving scenario, but on the AT method and through the Neu pool only.
         in_txs = [
