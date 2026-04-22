@@ -73,7 +73,15 @@ class TestMovingAverageAT(unittest.TestCase):
             notes=notes,
         )
 
-    def _sell(self, row: int, timestamp: str, crypto_out: str, spot_price: str, notes: Optional[str] = None) -> OutTransaction:
+    def _sell(
+        self,
+        row: int,
+        timestamp: str,
+        crypto_out: str,
+        spot_price: str,
+        notes: Optional[str] = None,
+        crypto_fee: str = "0",
+    ) -> OutTransaction:
         return OutTransaction(
             self._configuration,
             timestamp,
@@ -83,7 +91,7 @@ class TestMovingAverageAT(unittest.TestCase):
             "SELL",
             _rp2_decimal(spot_price),
             _rp2_decimal(crypto_out),
-            _rp2_decimal("0"),
+            _rp2_decimal(crypto_fee),
             row=row,
             notes=notes,
         )
@@ -246,6 +254,29 @@ class TestMovingAverageAT(unittest.TestCase):
         gains = self._gain_loss_list(self._compute(in_txs, out_txs))
         self.assertEqual(len(gains), 1)
         # Proceeds = 0.5 * 500 = 250; cost basis matches → gain 0.
+        self._assert_decimal_equal(gains[0].fiat_cost_basis, "250")
+        self._assert_decimal_equal(gains[0].fiat_gain, "0")
+
+    def test_neu_swap_with_fee_produces_zero_gain(self) -> None:
+        # Fee-bearing Neu swap still needs a zero-gain outgoing row. fiat_taxable_amount is
+        # based on crypto_out, while crypto_balance_change includes the fee.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="300"),
+        ]
+        out_txs = [
+            self._sell(
+                row=3,
+                timestamp="2023-03-01 00:00:00 +0000",
+                crypto_out="0.5",
+                crypto_fee="0.1",
+                spot_price="500",
+                notes="at_swap_link=swap-fee",
+            ),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        self.assertEqual(len(gains), 1)
+        self._assert_decimal_equal(gains[0].crypto_amount, "0.6")
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "250")
         self._assert_decimal_equal(gains[0].fiat_gain, "0")
 
