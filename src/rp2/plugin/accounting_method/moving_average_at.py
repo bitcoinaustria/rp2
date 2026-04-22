@@ -137,7 +137,9 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             # taxable proceeds so the outgoing GainLoss stays exactly at zero gain even when
             # crypto_balance_change includes a fee. The incoming leg is populated by Kassiber
             # with the carried basis (paired via at_swap_link=<id> and seeded onto the
-            # incoming InTransaction as fiat_in_with_fee = consumed * pool_average).
+            # incoming InTransaction as fiat_in_with_fee = crypto_out_no_fee * pool_average —
+            # the fee portion is absorbed as expense, consistent with depleting the Neu pool
+            # by crypto_out_with_fee * pool_average here).
             swap_unit_cost_basis: RP2Decimal = taxable_event.fiat_taxable_amount / taxable_event.crypto_balance_change
             return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=swap_unit_cost_basis)
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
