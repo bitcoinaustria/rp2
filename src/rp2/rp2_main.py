@@ -57,7 +57,6 @@ def rp2_main(country: AbstractCountry) -> None:
 
 def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too-many-branches
     args: Namespace
-    assets: List[str]
     parser: ArgumentParser
 
     AbstractCountry.type_check("country", country)
@@ -147,22 +146,33 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
             LOGGER.error("Command line option '-l' or '--plugin' has been deprecated: use the 'generators' section in the configuration file instead.")
             sys.exit(1)
 
+        all_assets: List[str] = sorted(configuration.assets)
         if args.asset:
-            assets = [args.asset]
+            selected_assets: List[str] = [args.asset]
         else:
-            assets = list(configuration.assets)
-        assets.sort()
+            selected_assets = list(all_assets)
 
         asset_to_computed_data: Dict[str, ComputedData] = {}
         asset: str
 
         LOGGER.info("Input file: %s", args.input_file)
         input_file_handle: object = open_ods(configuration=configuration, input_file_path=args.input_file)
-        for asset in assets:
-            LOGGER.info("Processing %s", asset)
 
-            input_data: InputData = parse_ods(configuration=configuration, asset=asset, input_file_handle=input_file_handle)
-            LOGGER.debug("InputData object: %s", input_data)
+        # Parse every configured asset so the country can enforce cross-asset invariants (e.g.
+        # the Austrian `at_swap_link` marker must appear on two different assets) before any
+        # per-asset accounting runs. Parsing always covers the full asset set — even in
+        # `--asset` mode — so a legitimate paired swap is not misreported as orphaned just
+        # because the user narrowed the accounting/reporting phase to one sheet.
+        asset_to_input_data: Dict[str, InputData] = {}
+        for asset in all_assets:
+            LOGGER.info("Parsing %s", asset)
+            asset_to_input_data[asset] = parse_ods(configuration=configuration, asset=asset, input_file_handle=input_file_handle)
+            LOGGER.debug("InputData object: %s", asset_to_input_data[asset])
+        country.validate_input_data(list(asset_to_input_data.values()))
+
+        for asset in selected_assets:
+            LOGGER.info("Processing %s", asset)
+            input_data: InputData = asset_to_input_data[asset]
 
             if use_per_wallet:
                 computed_data = compute_tax_per_wallet(
