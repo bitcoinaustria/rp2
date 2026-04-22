@@ -133,11 +133,15 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
                     f"Empty `at_swap_link=` marker on disposal. The id is required so Kassiber can "
                     f"pair the incoming leg and carry the basis. Event: {taxable_event}"
                 )
-            # Tax-neutral Neu swap: override cost basis with the proceeds' per-unit value so
-            # the GainLoss shows zero gain. The incoming leg's In leg is populated by Kassiber
-            # with the carried basis (Kassiber pairs legs via the at_swap_link=<id> marker and
-            # sets fiat_in_with_fee = consumed * pool_average on the incoming InTransaction).
-            return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=taxable_event.spot_price)
+            # Tax-neutral Neu swap: override cost basis with the disposal's fee-aware per-unit
+            # taxable proceeds so the outgoing GainLoss stays exactly at zero gain even when
+            # crypto_balance_change includes a fee. The incoming leg is populated by Kassiber
+            # with the carried basis (paired via at_swap_link=<id> and seeded onto the
+            # incoming InTransaction as fiat_in_with_fee = crypto_out_no_fee * pool_average —
+            # the fee portion is absorbed as expense, consistent with depleting the Neu pool
+            # by crypto_out_with_fee * pool_average here).
+            swap_unit_cost_basis: RP2Decimal = taxable_event.fiat_taxable_amount / taxable_event.crypto_balance_change
+            return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=swap_unit_cost_basis)
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
 
     def __any_lot_available(
