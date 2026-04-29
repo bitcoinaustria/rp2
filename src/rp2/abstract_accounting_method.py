@@ -19,7 +19,7 @@
 
 from enum import Enum
 from heapq import heappop, heappush
-from typing import cast, Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple, cast
 
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.in_transaction import InTransaction
@@ -33,6 +33,10 @@ class AcquiredLotAndAmount(NamedTuple):
     # Per-unit cost basis override. Pool-based methods (e.g. moving average) set this to the
     # running pool average at the time of the disposal. None means "use the lot's own cost basis".
     unit_cost_basis_override: Optional[RP2Decimal] = None
+    # Per-unit basis to carry to another taxable event. Most methods leave this unset; the
+    # Austrian moving-average method sets it for Neu crypto-to-crypto swaps so a cross-asset
+    # runner can seed the destination pool without re-computing source pool state.
+    taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
 
 
 class AcquiredLotCandidatesOrder(Enum):
@@ -94,10 +98,14 @@ class AbstractAcquiredLotCandidates:
         accounting_method: "AbstractAccountingMethod",
         acquired_lot_list: List[InTransaction],
         acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
         self._accounting_method: AbstractAccountingMethod = accounting_method
         self.__acquired_lot_list = acquired_lot_list
         self.__acquired_lot_2_partial_amount = acquired_lot_2_partial_amount
+        self.__acquired_lot_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
+            {} if acquired_lot_2_fiat_in_with_fee_override is None else acquired_lot_2_fiat_in_with_fee_override
+        )
         self.__to_index = 0
         self.__from_index = 0
 
@@ -143,8 +151,12 @@ class AbstractAcquiredLotCandidates:
     def clear_partial_amount(self, acquired_lot: InTransaction) -> None:
         self.set_partial_amount(acquired_lot, ZERO)
 
+    def get_fiat_in_with_fee(self, acquired_lot: InTransaction) -> RP2Decimal:
+        InTransaction.type_check("acquired_lot", acquired_lot)
+        return self.__acquired_lot_2_fiat_in_with_fee_override.get(acquired_lot, acquired_lot.fiat_in_with_fee)
+
     # Reset partial amounts to their original values and from index to zero.
-    def reset_partial_amounts(self, accounting_method: "AbstractAccountingMethod", original_partial_amounts: Dict[InTransaction, RP2Decimal]) -> None:  # pylint: disable=unused-argument
+    def reset_partial_amounts(self, _accounting_method: "AbstractAccountingMethod", original_partial_amounts: Dict[InTransaction, RP2Decimal]) -> None:
         for current_transaction, original_partial_amount in original_partial_amounts.items():
             self.set_partial_amount(current_transaction, original_partial_amount)
         self.set_from_index(0)
@@ -159,8 +171,9 @@ class ChronologicalAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         accounting_method: "AbstractAccountingMethod",
         acquired_lot_list: List[InTransaction],
         acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
-        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount)
+        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
         if not isinstance(accounting_method, AbstractChronologicalAccountingMethod):
             raise RP2TypeError(f"Internal error: accounting_method is not of type AbstractChronologicalAccountingMethod, but of type {type(accounting_method)}")
 
@@ -180,8 +193,9 @@ class PoolAcquiredLotCandidates(ChronologicalAcquiredLotCandidates):
         accounting_method: "AbstractAccountingMethod",
         acquired_lot_list: List[InTransaction],
         acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
-        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount)
+        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
         self.__pool_state: Dict[str, Tuple[RP2Decimal, RP2Decimal]] = {}
         self.__last_synced_index: int = -1
 
@@ -207,8 +221,9 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         accounting_method: "AbstractAccountingMethod",
         acquired_lot_list: List[InTransaction],
         acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
-        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount)
+        super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
         if not isinstance(accounting_method, AbstractFeatureBasedAccountingMethod):
             raise RP2TypeError(f"Internal error: accounting_method is not of type AbstractFeatureBasedAccountingMethod, but of type {type(accounting_method)}")
         self.__acquired_lot_heap: List[Tuple[AcquiredLotSortKey, InTransaction]] = []
@@ -250,7 +265,10 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
 
 class AbstractAccountingMethod:
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> AbstractAcquiredLotCandidates:
         raise NotImplementedError("Abstract function")
 
@@ -278,9 +296,12 @@ class AbstractAccountingMethod:
 
 class AbstractChronologicalAccountingMethod(AbstractAccountingMethod):
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> ChronologicalAcquiredLotCandidates:
-        return ChronologicalAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
+        return ChronologicalAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
     def lot_candidates_order(self) -> AcquiredLotCandidatesOrder:
         raise NotImplementedError("Abstract function")
@@ -326,9 +347,12 @@ class AbstractChronologicalAccountingMethod(AbstractAccountingMethod):
 
 class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> FeatureBasedAcquiredLotCandidates:
-        return FeatureBasedAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
+        return FeatureBasedAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
     def add_selected_lot_to_heap(self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction) -> None:
         heap_item = (self.sort_key(lot), lot)

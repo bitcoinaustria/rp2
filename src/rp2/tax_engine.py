@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Iterable, Iterator, Optional, cast
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple, cast
 
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.accounting_engine import (
@@ -33,152 +33,197 @@ from rp2.rp2_error import RP2RuntimeError, RP2ValueError
 from rp2.transaction_set import TransactionSet
 
 
+class TaxableEventComputation(NamedTuple):
+    taxable_event: AbstractTransaction
+    gain_losses: Tuple[GainLoss, ...]
+    taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
+
+
 def compute_tax(configuration: Configuration, accounting_engine: AccountingEngine, input_data: InputData) -> ComputedData:
     Configuration.type_check("configuration", configuration)
     AccountingEngine.type_check("accounting_engine", accounting_engine)
     InputData.type_check("input_data", input_data)
 
-    unfiltered_taxable_event_set: TransactionSet = input_data.create_unfiltered_taxable_event_set(configuration)
+    cursor: TaxEngineCursor = TaxEngineCursor(configuration, accounting_engine, input_data)
     LOGGER.debug("%s: Created taxable event set", input_data.asset)
-    unfiltered_gain_loss_set: GainLossSet = _create_unfiltered_gain_and_loss_set(configuration, accounting_engine, input_data, unfiltered_taxable_event_set)
+    while cursor.has_next():
+        cursor.consume_next_taxable_event()
     LOGGER.debug("%s: Created gain-loss set", input_data.asset)
 
-    return ComputedData(
-        input_data.asset,
-        unfiltered_taxable_event_set,
-        unfiltered_gain_loss_set,
-        input_data,
-        configuration.from_date,
-        configuration.to_date,
-    )
+    return cursor.to_computed_data()
 
 
-def _get_next_taxable_event_and_acquired_lot(
-    accounting_engine: AccountingEngine,
-    taxable_event: Optional[AbstractTransaction],
-    acquired_lot: Optional[InTransaction],
-    taxable_event_amount: RP2Decimal,
-    acquired_lot_amount: RP2Decimal,
-) -> TaxableEventAndAcquiredLot:
-    next_event: TaxableEventAndAcquiredLot = accounting_engine.get_next_taxable_event_and_amount(
-        taxable_event, acquired_lot, taxable_event_amount, acquired_lot_amount
-    )
-    new_acquired_lot: Optional[InTransaction] = next_event.acquired_lot
-    new_acquired_lot_amount: RP2Decimal = next_event.acquired_lot_amount
-    unit_cost_basis_override: Optional[RP2Decimal] = next_event.unit_cost_basis_override
-    if acquired_lot == new_acquired_lot:
-        paired: TaxableEventAndAcquiredLot = accounting_engine.get_acquired_lot_for_taxable_event(
-            next_event.taxable_event, new_acquired_lot, next_event.taxable_event_amount, new_acquired_lot_amount
+class TaxEngineCursor:
+    def __init__(
+        self,
+        configuration: Configuration,
+        accounting_engine: AccountingEngine,
+        input_data: InputData,
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
+    ) -> None:
+        Configuration.type_check("configuration", configuration)
+        AccountingEngine.type_check("accounting_engine", accounting_engine)
+        InputData.type_check("input_data", input_data)
+
+        self.__configuration: Configuration = configuration
+        self.__input_data: InputData = input_data
+        self.__unfiltered_taxable_event_set: TransactionSet = input_data.create_unfiltered_taxable_event_set(configuration)
+        self.__taxable_event_list: List[AbstractTransaction] = [cast(AbstractTransaction, entry) for entry in self.__unfiltered_taxable_event_set]
+        self.__taxable_event_index: int = 0
+        self.__gain_loss_set: GainLossSet = GainLossSet(configuration, input_data.asset, MIN_DATE, MAX_DATE)
+        self.__acquired_lot_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
+            {} if acquired_lot_2_fiat_in_with_fee_override is None else acquired_lot_2_fiat_in_with_fee_override
         )
-        new_acquired_lot = paired.acquired_lot
-        new_acquired_lot_amount = paired.acquired_lot_amount
-        unit_cost_basis_override = paired.unit_cost_basis_override
-    return TaxableEventAndAcquiredLot(
-        taxable_event=next_event.taxable_event,
-        acquired_lot=new_acquired_lot,
-        taxable_event_amount=next_event.taxable_event_amount,
-        acquired_lot_amount=new_acquired_lot_amount,
-        unit_cost_basis_override=unit_cost_basis_override,
-    )
+        self.__current_acquired_lot: Optional[InTransaction] = None
+        self.__current_acquired_lot_amount: RP2Decimal = ZERO
 
+        self.__accounting_engine: AccountingEngine = accounting_engine.__class__(accounting_engine.years_2_methods)
+        acquired_lot_iterator: Iterator[InTransaction] = iter(cast(Iterable[InTransaction], input_data.unfiltered_in_transaction_set))
+        self.__accounting_engine.initialize(
+            iter([]),
+            acquired_lot_iterator,
+            acquired_lot_to_fiat_in_with_fee_override=self.__acquired_lot_2_fiat_in_with_fee_override,
+        )
 
-def _create_unfiltered_gain_and_loss_set(
-    configuration: Configuration, accounting_engine: AccountingEngine, input_data: InputData, unfiltered_taxable_event_set: TransactionSet
-) -> GainLossSet:
-    gain_loss_set: GainLossSet = GainLossSet(configuration, input_data.asset, MIN_DATE, MAX_DATE)
-    # Create a fresh instance of accounting engine
-    new_accounting_engine: AccountingEngine = accounting_engine.__class__(accounting_engine.years_2_methods)
-    taxable_event_iterator: Iterator[AbstractTransaction] = iter(cast(Iterable[AbstractTransaction], unfiltered_taxable_event_set))
-    acquired_lot_iterator: Iterator[InTransaction] = iter(cast(Iterable[InTransaction], input_data.unfiltered_in_transaction_set))
+        self.__total_amount: RP2Decimal = ZERO
 
-    new_accounting_engine.initialize(taxable_event_iterator, acquired_lot_iterator)
+    @property
+    def current_taxable_event(self) -> Optional[AbstractTransaction]:
+        if self.__taxable_event_index >= len(self.__taxable_event_list):
+            return None
+        return self.__taxable_event_list[self.__taxable_event_index]
 
-    try:
-        gain_loss: GainLoss
-        total_amount: RP2Decimal = ZERO
+    @property
+    def gain_loss_set(self) -> GainLossSet:
+        return self.__gain_loss_set
 
-        # Retrieve first taxable event and acquired lot
-        current: TaxableEventAndAcquiredLot = _get_next_taxable_event_and_acquired_lot(new_accounting_engine, None, None, ZERO, ZERO)
+    def has_next(self) -> bool:
+        return self.current_taxable_event is not None
 
-        while current.taxable_event:
-            taxable_event: AbstractTransaction = current.taxable_event
-            acquired_lot: Optional[InTransaction] = current.acquired_lot
-            taxable_event_amount: RP2Decimal = current.taxable_event_amount
-            acquired_lot_amount: RP2Decimal = current.acquired_lot_amount
-            unit_cost_basis_override: Optional[RP2Decimal] = current.unit_cost_basis_override
+    def consume_next_taxable_event(self) -> TaxableEventComputation:
+        first_taxable_event: Optional[AbstractTransaction] = self.current_taxable_event
+        if first_taxable_event is None:
+            raise TaxableEventsExhaustedException()
 
-            # Type check values returned by accounting method plugin
-            AbstractTransaction.type_check("taxable_event", taxable_event)
-            if acquired_lot is None:
-                # There must always be at least one acquired_lot
-                raise RP2RuntimeError("Parameter 'acquired_lot' is None")
-            InTransaction.type_check("acquired_lot", acquired_lot)
-            Configuration.type_check_positive_decimal("taxable_event_amount", taxable_event_amount)
-            Configuration.type_check_positive_decimal("acquired_lot_amount", acquired_lot_amount)
+        gain_losses: List[GainLoss] = []
+        taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
+        if self.__current_acquired_lot is not None:
+            self.__accounting_engine.set_acquired_lot_partial_amount(self.__current_acquired_lot, self.__current_acquired_lot_amount)
+        try:
+            current: Optional[TaxableEventAndAcquiredLot] = self.__accounting_engine.get_acquired_lot_for_taxable_event(
+                first_taxable_event,
+                self.__current_acquired_lot,
+                first_taxable_event.crypto_balance_change,
+                ZERO,
+            )
+            while current is not None:
+                taxable_event: AbstractTransaction = current.taxable_event
+                acquired_lot: Optional[InTransaction] = current.acquired_lot
+                taxable_event_amount: RP2Decimal = current.taxable_event_amount
+                acquired_lot_amount: RP2Decimal = current.acquired_lot_amount
+                unit_cost_basis_override: Optional[RP2Decimal] = current.unit_cost_basis_override
+                if current.taxable_event_unit_cost_basis is not None:
+                    if taxable_event_unit_cost_basis is not None and taxable_event_unit_cost_basis != current.taxable_event_unit_cost_basis:
+                        raise RP2RuntimeError(
+                            "Internal error: inconsistent taxable-event unit cost basis while processing "
+                            f"{taxable_event}: {taxable_event_unit_cost_basis} != {current.taxable_event_unit_cost_basis}"
+                        )
+                    taxable_event_unit_cost_basis = current.taxable_event_unit_cost_basis
 
-            if taxable_event.is_earning():
-                # Handle earnings first: they have no acquired-lot
-                gain_loss = GainLoss(configuration, taxable_event_amount, taxable_event, None)
-                LOGGER.debug(
-                    "tax_engine: taxable is earn: %s / %s + %s = %s: %s",
-                    taxable_event_amount,
-                    total_amount,
-                    taxable_event_amount,
-                    total_amount + taxable_event_amount,
-                    gain_loss,
-                )
-                total_amount += taxable_event_amount
-                gain_loss_set.add_entry(gain_loss)
-                current = new_accounting_engine.get_next_taxable_event_and_amount(taxable_event, acquired_lot, ZERO, acquired_lot_amount)
-                continue
-            if taxable_event_amount == acquired_lot_amount:
-                gain_loss = GainLoss(configuration, taxable_event_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override)
-                LOGGER.debug(
-                    "tax_engine: taxable == acquired: %s == %s / %s + %s = %s: %s",
-                    taxable_event_amount,
-                    acquired_lot_amount,
-                    total_amount,
-                    taxable_event_amount,
-                    total_amount + taxable_event_amount,
-                    gain_loss,
-                )
-                total_amount += taxable_event_amount
-                gain_loss_set.add_entry(gain_loss)
-                current = _get_next_taxable_event_and_acquired_lot(
-                    new_accounting_engine, taxable_event, acquired_lot, taxable_event_amount, acquired_lot_amount
-                )
-            elif taxable_event_amount < acquired_lot_amount:
-                gain_loss = GainLoss(configuration, taxable_event_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override)
-                LOGGER.debug(
-                    "tax_engine: taxable < acquired: %s < %s / %s + %s = %s: %s",
-                    taxable_event_amount,
-                    acquired_lot_amount,
-                    total_amount,
-                    taxable_event_amount,
-                    total_amount + taxable_event_amount,
-                    gain_loss,
-                )
-                total_amount += taxable_event_amount
-                gain_loss_set.add_entry(gain_loss)
-                current = new_accounting_engine.get_next_taxable_event_and_amount(taxable_event, acquired_lot, taxable_event_amount, acquired_lot_amount)
-            else:  # taxable_amount > acquired_lot_amount
-                gain_loss = GainLoss(configuration, acquired_lot_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override)
+                # Type check values returned by accounting method plugin
+                AbstractTransaction.type_check("taxable_event", taxable_event)
+                if acquired_lot is None:
+                    # There must always be at least one acquired_lot
+                    raise RP2RuntimeError("Parameter 'acquired_lot' is None")
+                InTransaction.type_check("acquired_lot", acquired_lot)
+                Configuration.type_check_positive_decimal("taxable_event_amount", taxable_event_amount)
+                Configuration.type_check_positive_decimal("acquired_lot_amount", acquired_lot_amount)
+
+                if taxable_event.is_earning():
+                    # Handle earnings first: they have no acquired-lot
+                    gain_loss = GainLoss(self.__configuration, taxable_event_amount, taxable_event, None)
+                    LOGGER.debug(
+                        "tax_engine: taxable is earn: %s / %s + %s = %s: %s",
+                        taxable_event_amount,
+                        self.__total_amount,
+                        taxable_event_amount,
+                        self.__total_amount + taxable_event_amount,
+                        gain_loss,
+                    )
+                    self.__total_amount += taxable_event_amount
+                    self.__gain_loss_set.add_entry(gain_loss)
+                    gain_losses.append(gain_loss)
+                    self.__current_acquired_lot = acquired_lot
+                    self.__current_acquired_lot_amount = acquired_lot_amount
+                    self.__taxable_event_index += 1
+                    break
+                if taxable_event_amount == acquired_lot_amount:
+                    gain_loss = GainLoss(
+                        self.__configuration, taxable_event_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override
+                    )
+                    LOGGER.debug(
+                        "tax_engine: taxable == acquired: %s == %s / %s + %s = %s: %s",
+                        taxable_event_amount,
+                        acquired_lot_amount,
+                        self.__total_amount,
+                        taxable_event_amount,
+                        self.__total_amount + taxable_event_amount,
+                        gain_loss,
+                    )
+                    self.__total_amount += taxable_event_amount
+                    self.__gain_loss_set.add_entry(gain_loss)
+                    gain_losses.append(gain_loss)
+                    self.__current_acquired_lot = acquired_lot
+                    self.__current_acquired_lot_amount = ZERO
+                    self.__taxable_event_index += 1
+                    break
+                if taxable_event_amount < acquired_lot_amount:
+                    gain_loss = GainLoss(
+                        self.__configuration, taxable_event_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override
+                    )
+                    LOGGER.debug(
+                        "tax_engine: taxable < acquired: %s < %s / %s + %s = %s: %s",
+                        taxable_event_amount,
+                        acquired_lot_amount,
+                        self.__total_amount,
+                        taxable_event_amount,
+                        self.__total_amount + taxable_event_amount,
+                        gain_loss,
+                    )
+                    self.__total_amount += taxable_event_amount
+                    self.__gain_loss_set.add_entry(gain_loss)
+                    gain_losses.append(gain_loss)
+                    self.__current_acquired_lot = acquired_lot
+                    self.__current_acquired_lot_amount = acquired_lot_amount - taxable_event_amount
+                    self.__taxable_event_index += 1
+                    break
+                # taxable_amount > acquired_lot_amount
+                gain_loss = GainLoss(self.__configuration, acquired_lot_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override)
                 LOGGER.debug(
                     "tax_engine: taxable > acquired: %s > %s / %s + %s = %s: %s",
                     taxable_event_amount,
                     acquired_lot_amount,
-                    total_amount,
+                    self.__total_amount,
                     acquired_lot_amount,
-                    total_amount + acquired_lot_amount,
+                    self.__total_amount + acquired_lot_amount,
                     gain_loss,
                 )
-                total_amount += acquired_lot_amount
-                gain_loss_set.add_entry(gain_loss)
-                current = new_accounting_engine.get_acquired_lot_for_taxable_event(taxable_event, acquired_lot, taxable_event_amount, acquired_lot_amount)
+                self.__total_amount += acquired_lot_amount
+                self.__gain_loss_set.add_entry(gain_loss)
+                gain_losses.append(gain_loss)
+                current = self.__accounting_engine.get_acquired_lot_for_taxable_event(taxable_event, acquired_lot, taxable_event_amount, acquired_lot_amount)
+        except AcquiredLotsExhaustedException:
+            raise RP2ValueError("Total in-transaction crypto value < total taxable crypto value") from None
 
-    except AcquiredLotsExhaustedException:
-        raise RP2ValueError("Total in-transaction crypto value < total taxable crypto value") from None
-    except TaxableEventsExhaustedException:
-        pass
+        return TaxableEventComputation(first_taxable_event, tuple(gain_losses), taxable_event_unit_cost_basis)
 
-    return gain_loss_set
+    def to_computed_data(self) -> ComputedData:
+        return ComputedData(
+            self.__input_data.asset,
+            self.__unfiltered_taxable_event_set,
+            self.__gain_loss_set,
+            self.__input_data,
+            self.__configuration.from_date,
+            self.__configuration.to_date,
+            in_transaction_2_fiat_in_with_fee_override=self.__acquired_lot_2_fiat_in_with_fee_override,
+        )

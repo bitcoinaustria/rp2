@@ -62,9 +62,12 @@ from rp2.rp2_error import RP2TypeError, RP2ValueError
 # per pool id. The method itself is stateless.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> PoolAcquiredLotCandidates:
-        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
+        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
     def lot_candidates_order(self) -> AcquiredLotCandidatesOrder:
         return AcquiredLotCandidatesOrder.OLDER_TO_NEWER
@@ -153,7 +156,12 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             # the fee portion is absorbed as expense, consistent with depleting the Neu pool
             # by crypto_out_with_fee * pool_average here).
             swap_unit_cost_basis: RP2Decimal = taxable_event.fiat_taxable_amount / taxable_event.crypto_balance_change
-            return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=swap_unit_cost_basis)
+            return AcquiredLotAndAmount(
+                acquired_lot=selected,
+                amount=remaining,
+                unit_cost_basis_override=swap_unit_cost_basis,
+                taxable_event_unit_cost_basis=pool_average,
+            )
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
 
     def __any_lot_available(
@@ -197,7 +205,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
                 continue
             pool: str = pool_id_from_notes(lot.notes)
             pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
-            lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot.fiat_in_with_fee)
+            lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot))
         lot_candidates.set_last_synced_index(upper)
 
     def __deduct_from_neu_pool(
