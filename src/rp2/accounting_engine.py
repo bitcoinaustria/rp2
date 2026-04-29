@@ -24,6 +24,7 @@ from rp2.abstract_accounting_method import (
     AcquiredLotAndAmount,
 )
 from rp2.abstract_transaction import AbstractTransaction
+from rp2.configuration import Configuration
 from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2RuntimeError, RP2TypeError
@@ -43,6 +44,10 @@ class TaxableEventAndAcquiredLot(NamedTuple):
     # Per-unit cost basis override surfaced from the accounting method. Forwarded into
     # GainLoss so pool-based methods can supply their running average without touching lots.
     unit_cost_basis_override: Optional[RP2Decimal] = None
+    # Per-unit basis associated with the taxable event itself. This is distinct from
+    # unit_cost_basis_override: Austrian Neu swaps report zero gain using proceeds-per-unit,
+    # but carry the source pool average to the paired incoming lot.
+    taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
 
 
 @dataclass(frozen=True, eq=True)
@@ -103,6 +108,7 @@ class AccountingEngine:
         taxable_event_iterator: Iterator[AbstractTransaction],
         acquired_lot_iterator: Iterator[InTransaction],
         acquired_lot_to_partial_amount: Optional[Dict[InTransaction, RP2Decimal]] = None,
+        acquired_lot_to_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
         self.__taxable_event_iterator = taxable_event_iterator
         self.__acquired_lot_list = []
@@ -130,7 +136,12 @@ class AccountingEngine:
         while node is not None:
             # Pass __acquired_lot_2_partial_amount to all lot candidates so that they share the partial amount cache even across different accounting methods.
             self.__years_2_lot_candidates.insert_node(
-                node.key, node.value.create_lot_candidates(self.__acquired_lot_list, self.__acquired_lot_2_partial_amount)
+                node.key,
+                node.value.create_lot_candidates(
+                    self.__acquired_lot_list,
+                    self.__acquired_lot_2_partial_amount,
+                    acquired_lot_to_fiat_in_with_fee_override,
+                ),
             )
             if node.left:
                 to_visit.append(node.left)
@@ -172,6 +183,11 @@ class AccountingEngine:
     def _set_partial_amount(self, acquired_lot: InTransaction, amount: RP2Decimal) -> None:
         self.__acquired_lot_2_partial_amount[acquired_lot] = amount
 
+    def set_acquired_lot_partial_amount(self, acquired_lot: InTransaction, amount: RP2Decimal) -> None:
+        InTransaction.type_check("acquired_lot", acquired_lot)
+        Configuration.type_check_positive_decimal("amount", amount)
+        self._set_partial_amount(acquired_lot, amount)
+
     def get_next_taxable_event_and_amount(
         self,
         taxable_event: Optional[AbstractTransaction],
@@ -182,6 +198,7 @@ class AccountingEngine:
         new_acquired_lot: Optional[InTransaction] = acquired_lot
         new_acquired_lot_amount: RP2Decimal = acquired_lot_amount - taxable_event_amount if acquired_lot is not None else ZERO
         unit_cost_basis_override: Optional[RP2Decimal] = None
+        taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
 
         try:
             new_taxable_event: AbstractTransaction = next(self.__taxable_event_iterator)
@@ -200,6 +217,7 @@ class AccountingEngine:
             new_acquired_lot = paired.acquired_lot
             new_acquired_lot_amount = paired.acquired_lot_amount
             unit_cost_basis_override = paired.unit_cost_basis_override
+            taxable_event_unit_cost_basis = paired.taxable_event_unit_cost_basis
 
         return TaxableEventAndAcquiredLot(
             taxable_event=new_taxable_event,
@@ -207,6 +225,7 @@ class AccountingEngine:
             taxable_event_amount=new_taxable_event_amount,
             acquired_lot_amount=new_acquired_lot_amount,
             unit_cost_basis_override=unit_cost_basis_override,
+            taxable_event_unit_cost_basis=taxable_event_unit_cost_basis,
         )
 
     # After selecting the taxable event, RP2 calls this function to find the acquired_lot to pair with it.
@@ -243,6 +262,7 @@ class AccountingEngine:
                         taxable_event_amount=new_taxable_event_amount,
                         acquired_lot_amount=acquired_lot_and_amount.amount,
                         unit_cost_basis_override=acquired_lot_and_amount.unit_cost_basis_override,
+                        taxable_event_unit_cost_basis=acquired_lot_and_amount.taxable_event_unit_cost_basis,
                     )
 
         raise AcquiredLotsExhaustedException()

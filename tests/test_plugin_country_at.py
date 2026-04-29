@@ -356,6 +356,50 @@ class TestAtSwapLinkPairing(unittest.TestCase):
                 ]
             )
 
+    def test_empty_swap_link_marker_raises_in_pairing_validator(self) -> None:
+        with self.assertRaisesRegex(RP2ValueError, r"Empty `at_swap_link=` marker"):
+            validate_at_swap_link_pairing(
+                [
+                    self._input_data("B1", [self._in("B1", 1)], [self._out("B1", 2, notes="at_swap_link=")]),
+                    self._input_data("B2", [self._in("B2", 3)], []),
+                ]
+            )
+
+    def test_incoming_before_outgoing_marker_raises(self) -> None:
+        early_in = InTransaction(
+            self._configuration,
+            "2023-02-01 00:00:00 +0000",
+            "B2",
+            "Coinbase",
+            "Bob",
+            "BUY",
+            RP2Decimal("100"),
+            RP2Decimal("1"),
+            fiat_fee=RP2Decimal("0"),
+            row=1,
+            notes="at_swap_link=time-bug",
+        )
+        late_out = OutTransaction(
+            self._configuration,
+            "2023-03-01 00:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "SELL",
+            RP2Decimal("500"),
+            RP2Decimal("0.5"),
+            RP2Decimal("0"),
+            row=2,
+            notes="at_swap_link=time-bug",
+        )
+        with self.assertRaisesRegex(RP2ValueError, r"incoming leg is earlier"):
+            validate_at_swap_link_pairing(
+                [
+                    self._input_data("B1", [self._in("B1", 3)], [late_out]),
+                    self._input_data("B2", [early_in], []),
+                ]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
