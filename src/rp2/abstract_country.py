@@ -13,13 +13,16 @@
 # limitations under the License.
 
 
-from typing import TYPE_CHECKING, List, Sequence, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set
 
 from pycountry import countries, currencies
 
 from rp2.rp2_error import RP2TypeError, RP2ValueError
 
 if TYPE_CHECKING:
+    from rp2.accounting_engine import AccountingEngine
+    from rp2.computed_data import ComputedData
+    from rp2.configuration import Configuration
     from rp2.input_data import InputData
 
 
@@ -122,3 +125,15 @@ class AbstractCountry:
     def validate_input_data(self, input_data_list: Sequence["InputData"]) -> None:
         # pylint: disable=unused-argument
         return
+
+    # Optional cross-asset computation hook. Most countries can use RP2's default per-asset
+    # accounting loop, but country rules that move basis across assets can override this and
+    # return a complete asset -> ComputedData map.
+    def compute_tax_for_assets(
+        self,
+        configuration: "Configuration",
+        accounting_engine: "AccountingEngine",
+        asset_to_input_data: Dict[str, "InputData"],
+    ) -> Optional[Dict[str, "ComputedData"]]:
+        # pylint: disable=unused-argument
+        return None

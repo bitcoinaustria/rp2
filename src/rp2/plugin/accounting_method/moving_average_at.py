@@ -62,9 +62,12 @@ from rp2.rp2_error import RP2TypeError, RP2ValueError
 # per pool id. The method itself is stateless.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> PoolAcquiredLotCandidates:
-        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
+        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
     def lot_candidates_order(self) -> AcquiredLotCandidatesOrder:
         return AcquiredLotCandidatesOrder.OLDER_TO_NEWER
@@ -77,7 +80,6 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
     ) -> Optional[AcquiredLotAndAmount]:
         if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
             raise RP2TypeError(f"Internal error: moving_average_at expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}")
-        self.__sync_neu_pools(lot_candidates)
         event_pool: str = pool_id_from_notes(taxable_event.notes if taxable_event is not None else None)
 
         if event_has_explicit_regime(taxable_event):
@@ -115,6 +117,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         taxable_event: Optional[AbstractTransaction],
         event_pool: str,
     ) -> Optional[AcquiredLotAndAmount]:
+        self.__sync_neu_pool(lot_candidates, event_pool)
         selected, remaining = self.__find_non_exhausted_lot(lot_candidates, REGIME_NEU, pool_filter=event_pool)
         if selected is None:
             return None
@@ -153,7 +156,12 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             # the fee portion is absorbed as expense, consistent with depleting the Neu pool
             # by crypto_out_with_fee * pool_average here).
             swap_unit_cost_basis: RP2Decimal = taxable_event.fiat_taxable_amount / taxable_event.crypto_balance_change
-            return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=swap_unit_cost_basis)
+            return AcquiredLotAndAmount(
+                acquired_lot=selected,
+                amount=remaining,
+                unit_cost_basis_override=swap_unit_cost_basis,
+                taxable_event_unit_cost_basis=pool_average,
+            )
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
 
     def __any_lot_available(
@@ -187,18 +195,19 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             return lot, lot.crypto_in
         return None, ZERO
 
-    def __sync_neu_pools(self, lot_candidates: PoolAcquiredLotCandidates) -> None:
-        last_synced: int = lot_candidates.last_synced_index
+    def __sync_neu_pool(self, lot_candidates: PoolAcquiredLotCandidates, pool: str) -> None:
+        last_synced: int = lot_candidates.get_pool_last_synced_index(pool)
         lots = lot_candidates.acquired_lot_list
         upper: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(last_synced + 1, upper + 1):
             lot = lots[i]
             if classify_lot_regime(lot) != REGIME_NEU:
                 continue
-            pool: str = pool_id_from_notes(lot.notes)
+            if pool_id_from_notes(lot.notes) != pool:
+                continue
             pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
-            lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot.fiat_in_with_fee)
-        lot_candidates.set_last_synced_index(upper)
+            lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot))
+        lot_candidates.set_pool_last_synced_index(pool, upper)
 
     def __deduct_from_neu_pool(
         self,

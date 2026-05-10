@@ -170,22 +170,31 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
             LOGGER.debug("InputData object: %s", asset_to_input_data[asset])
         country.validate_input_data(list(asset_to_input_data.values()))
 
+        all_asset_to_computed_data: Optional[Dict[str, ComputedData]] = None
+        if not use_per_wallet:
+            all_asset_to_computed_data = country.compute_tax_for_assets(configuration, accounting_engine, asset_to_input_data)
+
+        if all_asset_to_computed_data is None:
+            all_asset_to_computed_data = {}
+            for asset in selected_assets:
+                LOGGER.info("Processing %s", asset)
+                input_data: InputData = asset_to_input_data[asset]
+
+                if use_per_wallet:
+                    computed_data = compute_tax_per_wallet(
+                        configuration=configuration,
+                        accounting_engine=accounting_engine,
+                        transfer_semantics=cast(AbstractAccountingMethod, transfer_semantics),
+                        universal_input_data=input_data,
+                    )
+                else:
+                    computed_data = compute_tax(configuration=configuration, accounting_engine=accounting_engine, input_data=input_data)
+                LOGGER.debug("ComputedData object: %s", computed_data)
+
+                all_asset_to_computed_data[asset] = computed_data
+
         for asset in selected_assets:
-            LOGGER.info("Processing %s", asset)
-            input_data: InputData = asset_to_input_data[asset]
-
-            if use_per_wallet:
-                computed_data = compute_tax_per_wallet(
-                    configuration=configuration,
-                    accounting_engine=accounting_engine,
-                    transfer_semantics=cast(AbstractAccountingMethod, transfer_semantics),
-                    universal_input_data=input_data,
-                )
-            else:
-                computed_data = compute_tax(configuration=configuration, accounting_engine=accounting_engine, input_data=input_data)
-            LOGGER.debug("ComputedData object: %s", computed_data)
-
-            asset_to_computed_data[asset] = computed_data
+            asset_to_computed_data[asset] = all_asset_to_computed_data[asset]
 
         # Run report generators (both country-specific and non-country-specific)
         _find_and_run_report_generators(

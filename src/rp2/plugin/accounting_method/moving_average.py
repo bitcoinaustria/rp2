@@ -45,9 +45,12 @@ _DEFAULT_POOL: str = "default"
 # subtracting `amount` from qty preserves the ratio). Only acquisitions move the average.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
     def create_lot_candidates(
-        self, acquired_lot_list: List[InTransaction], acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal]
+        self,
+        acquired_lot_list: List[InTransaction],
+        acquired_lot_2_partial_amount: Dict[InTransaction, RP2Decimal],
+        acquired_lot_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> PoolAcquiredLotCandidates:
-        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount)
+        return PoolAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
     def lot_candidates_order(self) -> AcquiredLotCandidatesOrder:
         return AcquiredLotCandidatesOrder.OLDER_TO_NEWER
@@ -88,7 +91,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         for i in range(last_synced + 1, upper_bound + 1):
             lot = lots[i]
             pool_qty = pool_qty + lot.crypto_in
-            pool_cost_total = pool_cost_total + lot.fiat_in_with_fee
+            pool_cost_total = pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot)
         lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
         lot_candidates.set_last_synced_index(upper_bound)
 

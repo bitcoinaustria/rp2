@@ -241,11 +241,12 @@ class Generator(AbstractODSGenerator):
             for current_transaction in computed_data.in_transaction_set:
                 in_transaction = cast(InTransaction, current_transaction)
                 actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
+                effective_fiat_in_with_fee: RP2Decimal = computed_data.get_in_transaction_fiat_in_with_fee(in_transaction)
                 if actual_amount is not None:
-                    transaction_cost_basis = (in_transaction.fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
+                    transaction_cost_basis = (effective_fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
                 else:
                     sold_percent = computed_data.get_in_lot_sold_percentage(in_transaction)
-                    transaction_cost_basis = in_transaction.fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
+                    transaction_cost_basis = effective_fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
 
                 if transaction_cost_basis > ZERO:
                     value = asset_cost_bases.setdefault(asset, ZERO)

@@ -110,7 +110,7 @@ class _YearlyGainLossAmounts:
     fiat_gain_loss: RP2Decimal
 
 
-class ComputedData:
+class ComputedData:  # pylint: disable=too-many-public-methods
     @classmethod
     def type_check(cls, name: str, instance: "ComputedData") -> "ComputedData":
         Configuration.type_check_parameter_name(name)
@@ -119,9 +119,16 @@ class ComputedData:
         return instance
 
     @staticmethod
-    def _compute_price_per_unit(input_data: InputData, to_date: date) -> RP2Decimal:
+    def _compute_price_per_unit(
+        input_data: InputData,
+        to_date: date,
+        in_transaction_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
+    ) -> RP2Decimal:
         crypto_in_running_sum: RP2Decimal = ZERO
         fiat_in_with_fee_running_sum: RP2Decimal = ZERO
+        basis_overrides: Dict[InTransaction, RP2Decimal] = (
+            {} if in_transaction_2_fiat_in_with_fee_override is None else in_transaction_2_fiat_in_with_fee_override
+        )
         for entry in input_data.unfiltered_in_transaction_set:
             # from_date is not used when computing average price per unit (because we always start from the beginning): only to_date is relevant.
             if entry.timestamp.date() > to_date:
@@ -130,7 +137,7 @@ class ComputedData:
             if input_data.is_intra_backed_artificial_in_transaction(transaction):
                 continue
             crypto_in_running_sum += transaction.crypto_in
-            fiat_in_with_fee_running_sum += transaction.fiat_in_with_fee
+            fiat_in_with_fee_running_sum += basis_overrides.get(transaction, transaction.fiat_in_with_fee)
         return fiat_in_with_fee_running_sum / crypto_in_running_sum if crypto_in_running_sum is not ZERO else ZERO
 
     @staticmethod
@@ -198,6 +205,7 @@ class ComputedData:
         input_data: InputData,
         from_date: date = MIN_DATE,
         to_date: date = MAX_DATE,
+        in_transaction_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
         # pylint: disable=too-many-branches
         InputData.type_check("input_data", input_data)
@@ -223,9 +231,12 @@ class ComputedData:
         self.__filtered_intra_transaction_set: TransactionSet = input_data.filtered_intra_transaction_set
         self.__filtered_out_transaction_set: TransactionSet = input_data.filtered_out_transaction_set
         self.__in_transaction_2_actual_amount: Dict[InTransaction, RP2Decimal] = input_data.in_transaction_2_actual_amount
+        self.__in_transaction_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
+            {} if in_transaction_2_fiat_in_with_fee_override is None else dict(in_transaction_2_fiat_in_with_fee_override)
+        )
 
         self.__filtered_balance_set: BalanceSet = BalanceSet(unfiltered_taxable_event_set.configuration, input_data, to_date)
-        self.__filtered_price_per_unit: RP2Decimal = self._compute_price_per_unit(input_data, to_date)
+        self.__filtered_price_per_unit: RP2Decimal = self._compute_price_per_unit(input_data, to_date, self.__in_transaction_2_fiat_in_with_fee_override)
 
         # Compute crypto running sums
         self.__crypto_in_running_sum: Dict[InTransaction, RP2Decimal] = {}
@@ -380,6 +391,11 @@ class ComputedData:
         if not self.has_in_transaction_actual_amounts():
             return None
         return self.__in_transaction_2_actual_amount[in_transaction] if in_transaction in self.__in_transaction_2_actual_amount else in_transaction.crypto_in
+
+    def get_in_transaction_fiat_in_with_fee(self, in_transaction: InTransaction) -> RP2Decimal:
+        """Effective fiat-in-with-fee for an in-transaction after native tax-engine overrides."""
+        InTransaction.type_check("in_transaction", in_transaction)
+        return self.__in_transaction_2_fiat_in_with_fee_override.get(in_transaction, in_transaction.fiat_in_with_fee)
 
     def get_unfiltered_taxable_event_and_gain_loss_set(self) -> Tuple[TransactionSet, GainLossSet]:
         """Unfiltered taxable-event and gain/loss sets for callers that need pre-window data."""

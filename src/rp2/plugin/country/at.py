@@ -17,7 +17,7 @@ import re
 import sys
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 from zoneinfo import ZoneInfo
 
 from rp2.abstract_country import AbstractCountry
@@ -27,9 +27,15 @@ from rp2.gain_loss import GainLoss
 from rp2.in_transaction import InTransaction
 from rp2.input_data import InputData
 from rp2.out_transaction import OutTransaction
+from rp2.plugin.country.at_native_tax_engine import compute_native_at_tax
 from rp2.rp2_decimal import ZERO
 from rp2.rp2_error import RP2ValueError
 from rp2.rp2_main import rp2_main
+
+if TYPE_CHECKING:
+    from rp2.accounting_engine import AccountingEngine
+    from rp2.computed_data import ComputedData
+    from rp2.configuration import Configuration
 
 # Austrian Altvermögen/Neuvermögen cutoff per § 27b EStG: anything acquired on or before
 # 2021-02-28 (Europe/Vienna) is Altvermögen; everything later is Neuvermögen.
@@ -81,6 +87,14 @@ class AtDisposalCategory(Enum):
     NEU_SWAP = "neu_swap"  # tax-neutral crypto-to-crypto swap on Neuvermögen (excluded from all Kennzahlen)
     ALT_SPEKULATION = "alt_spekulation"  # Altvermögen disposal within Spekulationsfrist (currently Kz 801)
     ALT_TAXFREE = "alt_taxfree"  # Altvermögen disposal past Spekulationsfrist (no Kennzahl)
+
+
+class AtSwapPair(NamedTuple):
+    swap_id: str
+    out_asset: str
+    out_transaction: OutTransaction
+    in_asset: str
+    in_transaction: InTransaction
 
 
 # `notes` is a free-form field, so marker parsing tokenizes on the documented separators and
@@ -197,34 +211,47 @@ def validate_at_swap_link_pairing(input_data_list: Sequence[InputData]) -> None:
     correctly. Events without an explicit regime marker are still validated — ambiguous
     cases should be disambiguated by the caller, not silently skipped.
     """
+    collect_at_swap_link_pairs(input_data_list)
+
+
+def _validated_swap_link_id(event: AbstractTransaction) -> Optional[str]:
+    if not has_swap_link(event):
+        return None
+    sid: Optional[str] = swap_link_id(event)
+    if sid is None:
+        raise RP2ValueError(
+            f"Empty `at_swap_link=` marker on transaction. The id is required so RP2 can pair " f"the outgoing leg with the incoming leg. Event: {event}"
+        )
+    if event_has_explicit_regime(event) and explicit_event_regime(event) == REGIME_ALT:
+        return None
+    return sid
+
+
+def collect_at_swap_link_pairs(input_data_list: Sequence[InputData]) -> Dict[str, AtSwapPair]:
+    """Return validated, swap-neutrality-eligible Austrian cross-asset swap pairs."""
     # For each id, track appearances as (asset, transaction, direction) where direction is
     # "out" for OutTransaction and "in" for InTransaction. Only swap-neutrality-eligible
     # events participate in pairing; explicit Alt events are skipped.
     out_by_id: Dict[str, List[Tuple[str, OutTransaction]]] = {}
     in_by_id: Dict[str, List[Tuple[str, InTransaction]]] = {}
     for input_data in input_data_list:
-        for entry in input_data.unfiltered_out_transaction_set:
-            out_tx = entry
-            if not isinstance(out_tx, OutTransaction):
+        for out_entry in input_data.unfiltered_out_transaction_set:
+            if not isinstance(out_entry, OutTransaction):
                 continue
-            sid: Optional[str] = swap_link_id(out_tx)
+            sid: Optional[str] = _validated_swap_link_id(out_entry)
             if sid is None:
                 continue
-            if event_has_explicit_regime(out_tx) and explicit_event_regime(out_tx) == REGIME_ALT:
-                continue
-            out_by_id.setdefault(sid, []).append((input_data.asset, out_tx))
-        for entry in input_data.unfiltered_in_transaction_set:
-            in_tx = entry
-            if not isinstance(in_tx, InTransaction):
+            out_by_id.setdefault(sid, []).append((input_data.asset, out_entry))
+        for in_entry in input_data.unfiltered_in_transaction_set:
+            if not isinstance(in_entry, InTransaction):
                 continue
             # InTransaction is a subclass of AbstractTransaction, so swap_link_id works.
-            sid = swap_link_id(in_tx)
+            sid = _validated_swap_link_id(in_entry)
             if sid is None:
                 continue
-            if event_has_explicit_regime(in_tx) and explicit_event_regime(in_tx) == REGIME_ALT:
-                continue
-            in_by_id.setdefault(sid, []).append((input_data.asset, in_tx))
+            in_by_id.setdefault(sid, []).append((input_data.asset, in_entry))
 
+    result: Dict[str, AtSwapPair] = {}
     all_ids: Set[str] = set(out_by_id) | set(in_by_id)
     for sid in sorted(all_ids):
         outs: List[Tuple[str, OutTransaction]] = out_by_id.get(sid, [])
@@ -244,6 +271,15 @@ def validate_at_swap_link_pairing(input_data_list: Sequence[InputData]) -> None:
                 f"crosses two assets; a same-asset pair indicates a Kassiber emission bug or a misclassified "
                 f"same-asset transfer. Outgoing: {outs[0][1].internal_id}; Incoming: {ins[0][1].internal_id}"
             )
+        outgoing_transaction: OutTransaction = outs[0][1]
+        incoming_transaction: InTransaction = ins[0][1]
+        if incoming_transaction.timestamp < outgoing_transaction.timestamp:
+            raise RP2ValueError(
+                f"`at_swap_link={sid}` incoming leg is earlier than the outgoing leg. RP2 cannot carry basis "
+                f"backwards in time. Outgoing: {out_asset} {outgoing_transaction.internal_id}; Incoming: {in_asset} {incoming_transaction.internal_id}"
+            )
+        result[sid] = AtSwapPair(sid, out_asset, outgoing_transaction, in_asset, incoming_transaction)
+    return result
 
 
 def classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory:
@@ -317,6 +353,17 @@ class AT(AbstractCountry):
     # zero a taxable gain. The cross-asset check here is the backstop.
     def validate_input_data(self, input_data_list: Sequence[InputData]) -> None:
         validate_at_swap_link_pairing(input_data_list)
+
+    def compute_tax_for_assets(
+        self,
+        configuration: "Configuration",
+        accounting_engine: "AccountingEngine",
+        asset_to_input_data: Dict[str, InputData],
+    ) -> Optional[Dict[str, "ComputedData"]]:
+        swap_pairs: Dict[str, AtSwapPair] = collect_at_swap_link_pairs(list(asset_to_input_data.values()))
+        if not swap_pairs:
+            return None
+        return compute_native_at_tax(configuration, accounting_engine, asset_to_input_data, swap_pairs)
 
 
 # Austria-specific entry point
