@@ -244,6 +244,29 @@ class TestNativeATSwapCarry(unittest.TestCase):
         self._assert_decimal_equal(computed["B2"].get_in_transaction_fiat_in_with_fee(b2_incoming), "100")
         self._assert_decimal_equal(self._gain_loss_list(computed["B2"])[0].fiat_cost_basis, "50")
 
+    def test_same_timestamp_different_pool_event_does_not_sync_unresolved_incoming_basis(self) -> None:
+        swap_timestamp = "2023-03-01 00:00:00 +0000"
+        b1_in = [self._buy("B1", 1, "2023-01-01 00:00:00 +0000", "1", "100")]
+        b1_out = [self._sell("B1", 50, swap_timestamp, "0.5", "1000", notes="at_swap_link=pool-sync")]
+        b2_base = self._buy("B2", 1, "2023-01-01 00:00:00 +0000", "1", "200", notes="at_pool=independent")
+        b2_incoming = self._buy("B2", 2, swap_timestamp, "2", "1000", notes="at_pool=carried at_swap_link=pool-sync")
+        b2_out = [
+            self._sell("B2", 10, swap_timestamp, "0.5", "300", notes="at_pool=independent"),
+            self._sell("B2", 20, "2023-04-01 00:00:00 +0000", "1", "100", notes="at_pool=carried"),
+        ]
+
+        computed = self._compute(
+            {
+                "B1": self._input_data("B1", b1_in, b1_out),
+                "B2": self._input_data("B2", [b2_base, b2_incoming], b2_out),
+            }
+        )
+
+        b2_gains = self._gain_loss_list(computed["B2"])
+        self._assert_decimal_equal(computed["B2"].get_in_transaction_fiat_in_with_fee(b2_incoming), "50")
+        self._assert_decimal_equal(b2_gains[0].fiat_cost_basis, "100")
+        self._assert_decimal_equal(b2_gains[1].fiat_cost_basis, "25")
+
     def test_alt_outgoing_swap_marker_realizes_normally_and_does_not_force_carry(self) -> None:
         b1_in = [self._buy("B1", 1, "2020-06-01 00:00:00 +0000", "1", "100")]
         b1_out = [
