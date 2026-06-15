@@ -216,15 +216,7 @@ class TransferAnalyzer:
     # This function performs transfer analysis on an InputData and generates as many new InputData objects as there are wallets.
     # For details see https://github.com/eprbell/rp2/wiki/Adding-Per%E2%80%90Wallet-Application-to-RP2.
     def analyze(self) -> Dict[Account, InputData]:  # pylint: disable=too-many-branches
-
-        all_transactions: TransactionSet = TransactionSet(self.__configuration, "MIXED", self.__universal_input_data.asset)
-        for transaction_set in [
-            self.__universal_input_data.unfiltered_in_transaction_set,
-            self.__universal_input_data.unfiltered_out_transaction_set,
-            self.__universal_input_data.unfiltered_intra_transaction_set,
-        ]:
-            for transaction in transaction_set:
-                all_transactions.add_entry(transaction)
+        all_transactions: TransactionSet = self.__universal_input_data.create_all_transaction_set(self.__configuration)
 
         wallet_2_per_wallet_transactions: Dict[Account, PerWalletTransactions] = {}
         for transaction in all_transactions:
@@ -301,6 +293,15 @@ class TransferAnalyzer:
                             fee,
                         )
                         if transaction.is_self_transfer():
+                            # The principal returns to the same wallet, so restore every touched lot.
+                            # NOTE: the crypto fee genuinely leaves the wallet, but we deliberately do
+                            # NOT deduct it from actual_amount here. The intra fee is realized as its
+                            # own taxable disposal by compute_tax against the *accounting method's* lot
+                            # selection, which the transfer-semantics pass cannot mirror per-lot for a
+                            # multi-lot transfer; deducting it from the transfer's last lot would make
+                            # open_positions' realized+open basis diverge from the original (see
+                            # CHANGELOG "Known limitations"). Reconciling intra fees in per-wallet
+                            # open_positions needs the broader per-wallet redesign.
                             from_per_wallet_transactions.in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
                         break
                     self._process_remaining_transfer_amount(

@@ -24,5 +24,12 @@ from rp2.rp2_decimal import ZERO
 # Note that under LIFO the date acquired must still be before or on the date sold: for details see
 # https://ttlc.intuit.com/community/investments-and-rental-properties/discussion/using-lifo-method-for-cryptocurrency-or-even-stock-cost-basis/00/1433542
 class AccountingMethod(AbstractFeatureBasedAccountingMethod):
+    # Both the acquired-lot heap (per-wallet transfer selection) and the taxable-event heap
+    # (disposal selection) order by cost_basis_timestamp, so LIFO consistently means "last
+    # originally-acquired, first out" for both transfers and disposals. This differs from hifo/lofo,
+    # which key on spot_price and only use cost_basis_timestamp as a tiebreaker on the taxable-event
+    # heap — there the lot-heap's arrival-timestamp tiebreaker is immaterial because price dominates.
+    # For LIFO the timestamp is the primary key, so using cost_basis_timestamp on both heaps is the
+    # intentional, internally-consistent choice (see test_transfer_analysis_semantics_dependent).
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
         return AcquiredLotSortKey(ZERO, -lot.cost_basis_timestamp.timestamp(), -lot.row)

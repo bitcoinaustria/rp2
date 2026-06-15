@@ -15,7 +15,7 @@
 
 import re
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 from zoneinfo import ZoneInfo
@@ -37,9 +37,13 @@ if TYPE_CHECKING:
     from rp2.computed_data import ComputedData
     from rp2.configuration import Configuration
 
+# All Austrian calendar-date rules (the Alt/Neu cutoff and the Spekulationsfrist) are evaluated
+# in Vienna local time, since the legal dates are Austrian wall-clock dates.
+AT_TIMEZONE: ZoneInfo = ZoneInfo("Europe/Vienna")
+
 # Austrian Altvermögen/Neuvermögen cutoff per § 27b EStG: anything acquired on or before
 # 2021-02-28 (Europe/Vienna) is Altvermögen; everything later is Neuvermögen.
-AT_NEU_CUTOFF: datetime = datetime(2021, 3, 1, 0, 0, 0, tzinfo=ZoneInfo("Europe/Vienna"))
+AT_NEU_CUTOFF: datetime = datetime(2021, 3, 1, 0, 0, 0, tzinfo=AT_TIMEZONE)
 
 REGIME_ALT: str = "alt"
 REGIME_NEU: str = "neu"
@@ -59,7 +63,10 @@ AT_SWAP_MARKER: str = "at_swap_link="
 AT_POOL_MARKER: str = "at_pool="
 AT_DEFAULT_POOL: str = "default"
 
-# Spekulationsfrist threshold for Altvermögen disposals (private-investor § 31 regime).
+# Spekulationsfrist for Altvermögen disposals (private-investor § 31 regime): one calendar year,
+# not a fixed day count. Kept as a public constant for documentation/consumers; the precise
+# classification uses a calendar-year cutoff (see `_within_spekulationsfrist`) so a 29 February
+# inside the holding period does not shift the boundary.
 AT_SPEKULATIONSFRIST_DAYS: int = 365
 
 # BMF income classification of crypto earn events:
@@ -70,6 +77,14 @@ AT_SPEKULATIONSFRIST_DAYS: int = 365
 # The category enum below exposes this split; the mapping from semantic category to a BMF
 # Kennzahl code lives in the consumer (Kassiber), because Kennzahl codes can change with
 # tax reforms while the semantic bucketing does not.
+#
+# Assumption: rp2 treats every STAKING/INTEREST event as income at receipt at fair market value
+# (Überlassung). This is the correct treatment for lending/custodial-staking returns, but under
+# § 27b Abs 2 EStG / BMF guidance genuine block-production ("staking" for consensus) is NOT taxable
+# at receipt and instead takes a zero acquisition cost. RP2 cannot tell the two apart from the
+# transaction type alone, so the caller (Kassiber) is responsible for only emitting STAKING/INTEREST
+# for the Überlassung case; non-taxable-at-receipt block rewards should be modeled with a zero-cost
+# acquisition, not an earn event.
 _CAPITAL_YIELD_TRANSACTION_TYPES: frozenset[TransactionType] = frozenset({TransactionType.STAKING, TransactionType.INTEREST})
 
 
@@ -139,10 +154,45 @@ def _regime_from_notes(notes: Optional[str]) -> Optional[str]:
 
 
 def classify_lot_regime(lot: InTransaction) -> str:
-    tagged = _regime_from_notes(lot.notes)
+    # In per-wallet application a lot moved by a transfer is modeled by an artificial InTransaction
+    # whose notes are replaced with descriptive text (dropping any at_regime marker) and whose
+    # timestamp is the transfer date. Follow the from_lot chain back to the originating real lot so
+    # an explicit at_regime marker survives the transfer (it would otherwise be lost, letting the
+    # date fallback contradict a forced regime), and fall back to the original acquisition date
+    # (cost_basis_timestamp) only when there is no explicit marker. For ordinary (non-transferred)
+    # lots from_lot is None and cost_basis_timestamp == timestamp, so this is a no-op under universal
+    # application.
+    origin: InTransaction = lot
+    while origin.from_lot is not None:
+        origin = origin.from_lot
+    tagged = _regime_from_notes(origin.notes)
     if tagged is not None:
         return tagged
-    return REGIME_ALT if lot.timestamp < AT_NEU_CUTOFF else REGIME_NEU
+    return REGIME_ALT if origin.cost_basis_timestamp < AT_NEU_CUTOFF else REGIME_NEU
+
+
+def _add_one_calendar_year(start: date) -> date:
+    try:
+        return start.replace(year=start.year + 1)
+    except ValueError:
+        # start is 29 February and the following year is not a leap year, so the corresponding day
+        # does not exist. Per § 108 BAO the period then ends on the last day of the matching month.
+        return date(start.year + 1, 2, 28)
+
+
+def _within_spekulationsfrist(acquisition: datetime, disposal: datetime) -> bool:
+    """True if an Altvermögen disposal falls inside the one-year Spekulationsfrist (taxable).
+
+    Austrian law (§ 31 EStG, Fristberechnung per § 108 BAO) measures the holding period as one
+    *calendar* year, not a fixed 365-day count: the period ends on the day of the following year
+    that corresponds by number to the acquisition day, and a disposal on that anniversary is still
+    inside the Frist. Counting 365 days would wrongly treat a holding one day short of the calendar
+    year as past the Frist whenever a 29 February falls inside it. Dates are compared in Vienna
+    local time because the legal dates are Austrian wall-clock dates.
+    """
+    acquisition_date: date = acquisition.astimezone(AT_TIMEZONE).date()
+    disposal_date: date = disposal.astimezone(AT_TIMEZONE).date()
+    return disposal_date <= _add_one_calendar_year(acquisition_date)
 
 
 def event_has_explicit_regime(event: Optional[AbstractTransaction]) -> bool:
@@ -289,8 +339,9 @@ def classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory:
     INCOME_CAPITAL_YIELD (currently Kz 175), everything else to INCOME_GENERAL (currently
     Kz 172). Disposals route on regime: Neu disposals marked `at_swap_link=<id>` are
     tax-neutral (NEU_SWAP), other Neu disposals split on sign into NEU_GAIN/NEU_LOSS. Alt
-    disposals split on the 365-day Spekulationsfrist: >= threshold → ALT_TAXFREE, else
-    ALT_SPEKULATION.
+    disposals split on the one-year Spekulationsfrist (a calendar year per § 108 BAO, see
+    `_within_spekulationsfrist`): a disposal within the Frist (up to and including the
+    acquisition anniversary) is ALT_SPEKULATION; past it, ALT_TAXFREE.
     """
     if gain_loss.acquired_lot is None:
         if gain_loss.taxable_event.transaction_type in _CAPITAL_YIELD_TRANSACTION_TYPES:
@@ -301,10 +352,9 @@ def classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory:
         if has_swap_link(gain_loss.taxable_event):
             return AtDisposalCategory.NEU_SWAP
         return AtDisposalCategory.NEU_GAIN if gain_loss.fiat_gain >= ZERO else AtDisposalCategory.NEU_LOSS
-    holding_days: int = (gain_loss.taxable_event.timestamp - gain_loss.acquired_lot.timestamp).days
-    if holding_days >= AT_SPEKULATIONSFRIST_DAYS:
-        return AtDisposalCategory.ALT_TAXFREE
-    return AtDisposalCategory.ALT_SPEKULATION
+    if _within_spekulationsfrist(gain_loss.acquired_lot.cost_basis_timestamp, gain_loss.taxable_event.timestamp):
+        return AtDisposalCategory.ALT_SPEKULATION
+    return AtDisposalCategory.ALT_TAXFREE
 
 
 # Austria-specific class

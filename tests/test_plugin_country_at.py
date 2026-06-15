@@ -137,6 +137,30 @@ class TestAtMarkerParsing(unittest.TestCase):
         self.assertEqual(classify_lot_regime(lot), REGIME_ALT)
         self.assertEqual(pool_id_from_notes(lot.notes), "cold")
 
+    def test_explicit_regime_survives_transfer_via_from_lot(self) -> None:
+        # In per-wallet application the artificial "to" lot drops the source's at_regime marker
+        # (its notes are replaced with descriptive text). classify_lot_regime must follow from_lot
+        # back to the originating lot so an explicit marker that contradicts the acquisition date
+        # (here: pre-cutoff lot forced to Neu) is preserved instead of being flipped to Alt by the
+        # date fallback.
+        source = self._lot("2020-06-01 00:00:00 +0000", "at_regime=neu")  # pre-cutoff, forced Neu
+        artificial = InTransaction(
+            self._configuration,
+            "2023-06-01 00:00:00 +0000",  # transfer date (post-cutoff)
+            "B1",
+            "Kraken",
+            "Alice",
+            "BUY",
+            RP2Decimal("100"),
+            RP2Decimal("1"),
+            fiat_fee=RP2Decimal("0"),
+            row=-1,
+            notes="Artificial transaction modeling the reception of 1 B1",  # no at_regime marker
+            from_lot=source,
+            cost_basis_timestamp="2020-06-01 00:00:00 +0000",
+        )
+        self.assertEqual(classify_lot_regime(artificial), REGIME_NEU)
+
     def test_conflicting_regime_markers_raise(self) -> None:
         lot = self._lot("2023-06-01 00:00:00 +0000", "at_regime=alt at_regime=neu")
         with self.assertRaisesRegex(RP2ValueError, "Conflicting `at_regime` markers"):

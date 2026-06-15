@@ -39,7 +39,7 @@ def _rp2_decimal(value: str) -> RP2Decimal:
     return RP2Decimal(value)
 
 
-class TestMovingAverageAT(unittest.TestCase):
+class TestMovingAverageAT(unittest.TestCase):  # pylint: disable=too-many-public-methods
     _configuration: Configuration
 
     @classmethod
@@ -58,14 +58,14 @@ class TestMovingAverageAT(unittest.TestCase):
         years_2_methods.insert_node(MIN_DATE.year, AccountingMethod())
         return AccountingEngine(years_2_methods)
 
-    def _buy(self, row: int, timestamp: str, crypto_in: str, spot_price: str, notes: Optional[str] = None) -> InTransaction:
+    def _buy(self, row: int, timestamp: str, crypto_in: str, spot_price: str, notes: Optional[str] = None, transaction_type: str = "BUY") -> InTransaction:
         return InTransaction(
             self._configuration,
             timestamp,
             _ASSET,
             "Coinbase",
             "Bob",
-            "BUY",
+            transaction_type,
             _rp2_decimal(spot_price),
             _rp2_decimal(crypto_in),
             fiat_fee=_rp2_decimal("0"),
@@ -146,6 +146,31 @@ class TestMovingAverageAT(unittest.TestCase):
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")  # 0.5 * 200
         self._assert_decimal_equal(gains[0].fiat_gain, "100")
 
+    def test_earn_event_does_not_deplete_neu_pool(self) -> None:
+        # Regression: an earn event (STAKING) is income at receipt with no acquired lot, but the
+        # tax engine used to route every taxable event through the pool-depleting seek before
+        # checking is_earning(). That silently drained the Neu pool by the earn amount and
+        # overstated the gain on later disposals. Buy 1@100, stake 1@200 (enters the pool),
+        # buy 1@400: pool qty=3, cost_total=700, avg=233.33...; sell 3 -> cost basis exactly 700.
+        in_txs = [
+            self._buy(row=1, timestamp="2022-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2022-06-01 00:00:00 +0000", crypto_in="1", spot_price="200", transaction_type="STAKING"),
+            self._buy(row=3, timestamp="2022-07-01 00:00:00 +0000", crypto_in="1", spot_price="400"),
+        ]
+        out_txs = [
+            self._sell(row=4, timestamp="2022-08-01 00:00:00 +0000", crypto_out="3", spot_price="500"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        # One earn row (no acquired lot) + one or more SELL rows.
+        earn_rows = [g for g in gains if g.acquired_lot is None]
+        sell_rows = [g for g in gains if g.acquired_lot is not None]
+        self.assertEqual(len(earn_rows), 1)
+        self._assert_decimal_equal(earn_rows[0].fiat_gain, "200")  # staking income at fmv
+        total_cost_basis = sum((g.fiat_cost_basis for g in sell_rows), _rp2_decimal("0"))
+        total_gain = sum((g.fiat_gain for g in sell_rows), _rp2_decimal("0"))
+        self._assert_decimal_equal(total_cost_basis, "700")  # 3 * 233.33... pool average
+        self._assert_decimal_equal(total_gain, "800")  # 1500 proceeds - 700 basis
+
     def test_mixed_pools_routed_by_explicit_event_regime_marker(self) -> None:
         # Alt lot and Neu lot coexist. Two disposals, each explicitly tagged.
         in_txs = [
@@ -209,6 +234,19 @@ class TestMovingAverageAT(unittest.TestCase):
             self._sell(row=3, timestamp="2023-06-01 00:00:00 +0000", crypto_out="0.5", spot_price="500"),
         ]
         with self.assertRaisesRegex(RP2ValueError, "Ambiguous Austrian disposal"):
+            self._compute(in_txs, out_txs)
+
+    def test_neu_disposal_in_empty_pool_with_lots_elsewhere_raises_pool_mismatch(self) -> None:
+        # Funds acquired in pool "wallet-a", disposed tagged at_pool="wallet-b" (e.g. coins moved
+        # between wallets without re-tagging). Pool wallet-b has no lots but wallet-a does, so the
+        # engine surfaces a specific pool-mismatch error instead of the generic exhaustion message.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100", notes="at_pool=wallet-a"),
+        ]
+        out_txs = [
+            self._sell(row=2, timestamp="2023-06-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_pool=wallet-b"),
+        ]
+        with self.assertRaisesRegex(RP2ValueError, r"at_pool='wallet-b' has no available lots .* other Neu pool\(s\) \['wallet-a'\]"):
             self._compute(in_txs, out_txs)
 
     def test_default_unmarked_disposal_falls_back_to_neu_when_no_alt(self) -> None:

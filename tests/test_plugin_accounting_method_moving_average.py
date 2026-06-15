@@ -57,14 +57,14 @@ class TestMovingAverage(unittest.TestCase):
         years_2_methods.insert_node(MIN_DATE.year, AccountingMethod())
         return AccountingEngine(years_2_methods)
 
-    def _buy(self, row: int, timestamp: str, crypto_in: str, spot_price: str) -> InTransaction:
+    def _buy(self, row: int, timestamp: str, crypto_in: str, spot_price: str, transaction_type: str = "BUY") -> InTransaction:
         return InTransaction(
             self._configuration,
             timestamp,
             _ASSET,
             "Coinbase",
             "Bob",
-            "BUY",
+            transaction_type,
             _rp2_decimal(spot_price),
             _rp2_decimal(crypto_in),
             fiat_fee=_rp2_decimal("0"),
@@ -119,6 +119,25 @@ class TestMovingAverage(unittest.TestCase):
         self._assert_decimal_equal(gains[0].crypto_amount, "0.5")
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")
         self._assert_decimal_equal(gains[0].fiat_gain, "100")
+
+    def test_earn_event_does_not_deplete_pool(self) -> None:
+        # Regression: earn events (STAKING) are income at receipt with no acquired lot. The tax
+        # engine must not run them through the pool-depleting seek. Buy 1@100, stake 1@200 (enters
+        # the pool), buy 1@400 → pool (3, 700, avg 233.33...). Sell 3 → cost basis exactly 700.
+        in_txs = [
+            self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100"),
+            self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="1", spot_price="200", transaction_type="STAKING"),
+            self._buy(row=3, timestamp="2023-03-01 00:00:00 +0000", crypto_in="1", spot_price="400"),
+        ]
+        out_txs = [
+            self._sell(row=4, timestamp="2023-04-01 00:00:00 +0000", crypto_out="3", spot_price="500"),
+        ]
+        gains = self._gain_loss_list(self._compute(in_txs, out_txs))
+        sell_rows = [g for g in gains if g.acquired_lot is not None]
+        total_cost_basis = sum((g.fiat_cost_basis for g in sell_rows), _rp2_decimal("0"))
+        total_gain = sum((g.fiat_gain for g in sell_rows), _rp2_decimal("0"))
+        self._assert_decimal_equal(total_cost_basis, "700")
+        self._assert_decimal_equal(total_gain, "800")
 
     def test_multiple_disposals_preserve_running_average(self) -> None:
         # After both buys: pool (2, 400, avg 200). Disposals at 500 each; avg must stay 200
