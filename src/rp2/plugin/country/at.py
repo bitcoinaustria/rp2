@@ -154,15 +154,21 @@ def _regime_from_notes(notes: Optional[str]) -> Optional[str]:
 
 
 def classify_lot_regime(lot: InTransaction) -> str:
-    tagged = _regime_from_notes(lot.notes)
+    # In per-wallet application a lot moved by a transfer is modeled by an artificial InTransaction
+    # whose notes are replaced with descriptive text (dropping any at_regime marker) and whose
+    # timestamp is the transfer date. Follow the from_lot chain back to the originating real lot so
+    # an explicit at_regime marker survives the transfer (it would otherwise be lost, letting the
+    # date fallback contradict a forced regime), and fall back to the original acquisition date
+    # (cost_basis_timestamp) only when there is no explicit marker. For ordinary (non-transferred)
+    # lots from_lot is None and cost_basis_timestamp == timestamp, so this is a no-op under universal
+    # application.
+    origin: InTransaction = lot
+    while origin.from_lot is not None:
+        origin = origin.from_lot
+    tagged = _regime_from_notes(origin.notes)
     if tagged is not None:
         return tagged
-    # Use cost_basis_timestamp (original acquisition), not timestamp: in per-wallet application a
-    # lot moved by a transfer is modeled with an artificial InTransaction whose timestamp is the
-    # transfer date, while cost_basis_timestamp preserves the real acquisition date. Falling back
-    # to timestamp would reclassify transferred Altvermögen as Neuvermögen. cost_basis_timestamp
-    # defaults to timestamp for ordinary lots, so this is a no-op under universal application.
-    return REGIME_ALT if lot.cost_basis_timestamp < AT_NEU_CUTOFF else REGIME_NEU
+    return REGIME_ALT if origin.cost_basis_timestamp < AT_NEU_CUTOFF else REGIME_NEU
 
 
 def _add_one_calendar_year(start: date) -> date:

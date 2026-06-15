@@ -91,15 +91,18 @@ def compute_native_at_tax(
             result: TaxableEventComputation = cursors[asset].consume_next_taxable_event()
             source_pair: AtSwapPair | None = source_key_to_pair.get(_event_key(asset, result.taxable_event))
             if source_pair is not None:
-                if result.taxable_event_unit_cost_basis is None:
-                    # The outgoing leg was paired (validate_at_swap_link_pairing passed) but the
-                    # accounting method produced no carried cost basis. Only `moving_average_at`
-                    # honors the swap marker — it emits the zero-gain override and the Neu pool
-                    # average to carry. fifo / plain moving_average would silently realize a taxable
-                    # gain on the outgoing leg while classify_disposal still buckets it NEU_SWAP, and
-                    # carry no basis to the incoming leg. Fail loudly instead of under-reporting.
+                if result.taxable_event_unit_cost_basis is None and _consumed_neu_lot(result):
+                    # The outgoing leg consumed Neuvermögen lots but the accounting method produced no
+                    # carried cost basis. Only `moving_average_at` honors the swap marker on the Neu
+                    # path — it emits the zero-gain override and the Neu pool average to carry. fifo /
+                    # plain moving_average would silently realize a taxable gain on the outgoing leg
+                    # while classify_disposal still buckets it NEU_SWAP, and carry no basis to the
+                    # incoming leg. Fail loudly instead of under-reporting. (An *unmarked* swap row
+                    # routed to the Alt path consumes Alt lots and legitimately carries nothing — Alt
+                    # swaps are regime-breaking taxable disposals — so it is resolved without a carry
+                    # below rather than rejected.)
                     raise RP2ValueError(
-                        f"Austrian swap neutrality requires the `moving_average_at` accounting method, but the outgoing leg of "
+                        f"Austrian swap neutrality requires the `moving_average_at` accounting method, but the Neuvermögen outgoing leg of "
                         f"at_swap_link={source_pair.swap_id} ({source_pair.out_asset} {source_pair.out_transaction.internal_id}) produced no "
                         f"carried cost basis. The configured accounting method did not honor the swap marker. Re-run with `-m moving_average_at` "
                         f"(the AT default), or remove the at_swap_link markers if you intend swaps to be taxable disposals."
@@ -153,6 +156,17 @@ def _first_unresolved_incoming_pair(
         if pair.in_transaction not in resolved_incoming_by_asset[asset] and _incoming_can_affect_event(pair.in_transaction, taxable_event):
             return pair
     return None
+
+
+def _consumed_neu_lot(result: TaxableEventComputation) -> bool:
+    # True if any lot the disposal consumed is Neuvermögen. Used to tell a misconfigured method
+    # (fifo / plain moving_average on a Neu swap — must fail) apart from an unmarked swap row that
+    # moving_average_at legitimately routed to the Alt path (Alt swaps are taxable and carry no
+    # basis — must resolve without a carry, not fail).
+    # pylint: disable=import-outside-toplevel
+    from rp2.plugin.country.at import REGIME_NEU, classify_lot_regime
+
+    return any(gain_loss.acquired_lot is not None and classify_lot_regime(gain_loss.acquired_lot) == REGIME_NEU for gain_loss in result.gain_losses)
 
 
 def _incoming_can_affect_event(in_transaction: InTransaction, taxable_event: AbstractTransaction) -> bool:

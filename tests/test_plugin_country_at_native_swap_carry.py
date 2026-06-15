@@ -291,6 +291,29 @@ class TestNativeATSwapCarry(unittest.TestCase):
         )
 
         self._assert_decimal_equal(self._gain_loss_list(computed["B1"])[0].fiat_gain, "200")
+
+    def test_unmarked_swap_routed_to_alt_by_availability_does_not_raise(self) -> None:
+        # An at_swap_link disposal with NO explicit at_regime, where only Alt lots are available, is
+        # routed to the Alt path by moving_average_at (Alt swaps are taxable, no basis carry). The
+        # pair is still collected (only explicit at_regime=alt is skipped), so the native runner sees
+        # a source pair with no carry — it must resolve it without a carry, NOT raise "requires
+        # moving_average_at" (that guard is only for a method that ignored a Neu swap).
+        b1_in = [self._buy("B1", 1, "2020-06-01 00:00:00 +0000", "1", "100")]  # Alt by date, no marker
+        b1_out = [self._sell("B1", 2, "2023-06-01 00:00:00 +0000", "0.5", "500", notes="at_swap_link=alt-unmarked")]
+        b2_incoming = self._buy("B2", 1, "2023-06-01 00:00:00 +0000", "1", "250", notes="at_swap_link=alt-unmarked")
+        # B2's only lot is the (post-cutoff, Neu) incoming leg; its sell routes to Neu by availability.
+        b2_out = [self._sell("B2", 2, "2023-07-01 00:00:00 +0000", "0.5", "300")]
+
+        computed = self._compute(
+            {
+                "B1": self._input_data("B1", b1_in, b1_out),
+                "B2": self._input_data("B2", [b2_incoming], b2_out),
+            }
+        )
+
+        # B1 realizes a normal Alt gain (own basis 0.5*100=50, proceeds 250), no carry to B2.
+        self._assert_decimal_equal(self._gain_loss_list(computed["B1"])[0].fiat_gain, "200")
+        self._assert_decimal_equal(computed["B2"].get_in_transaction_fiat_in_with_fee(b2_incoming), "250")
         self._assert_decimal_equal(computed["B2"].get_in_transaction_fiat_in_with_fee(b2_incoming), "250")
 
     def test_same_timestamp_reciprocal_swaps_in_independent_pools_do_not_deadlock(self) -> None:
