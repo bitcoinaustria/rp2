@@ -172,24 +172,6 @@ class TransferAnalyzer:
         to_account = Account(transfer.to_exchange, transfer.to_holder)
         return to_account in acquired_lot.originates_from
 
-    def _finalize_self_transfer(
-        self,
-        from_per_wallet_transactions: PerWalletTransactions,
-        original_actual_amounts: Dict[InTransaction, RP2Decimal],
-        final_lot: InTransaction,
-        fee: RP2Decimal,
-    ) -> None:
-        # On a self-transfer the principal returns to the same wallet, so every touched lot is
-        # restored to its original amount. But the crypto fee genuinely left the wallet (it is a
-        # taxable disposal modeled on the IntraTransaction itself), so after restoring the principal
-        # we re-deduct the fee from the final lot — mirroring the cross-wallet path, which deducts the
-        # fee from the last lot inside _process_remaining_transfer_amount. Without this the wallet's
-        # remaining balance (open_positions, GlobalAllocator) would be overstated by the fee.
-        in_transactions = from_per_wallet_transactions.in_transactions
-        in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
-        if fee > ZERO:
-            in_transactions.set_partial_amount(final_lot, in_transactions.get_partial_amount(final_lot) - fee)
-
     # _process_remaining_transfer_amount processes the remaining amount of a transfer (that has not yet been assigned to in lots by transfer analysis):
     # it handles self-transfers, cycles and normal transfers. In the last case it creates an artificial InTransaction to model the remaining amount.
     def _process_remaining_transfer_amount(
@@ -311,7 +293,16 @@ class TransferAnalyzer:
                             fee,
                         )
                         if transaction.is_self_transfer():
-                            self._finalize_self_transfer(from_per_wallet_transactions, original_actual_amounts, current_in_lot_and_amount.acquired_lot, fee)
+                            # The principal returns to the same wallet, so restore every touched lot.
+                            # NOTE: the crypto fee genuinely leaves the wallet, but we deliberately do
+                            # NOT deduct it from actual_amount here. The intra fee is realized as its
+                            # own taxable disposal by compute_tax against the *accounting method's* lot
+                            # selection, which the transfer-semantics pass cannot mirror per-lot for a
+                            # multi-lot transfer; deducting it from the transfer's last lot would make
+                            # open_positions' realized+open basis diverge from the original (see
+                            # CHANGELOG "Known limitations"). Reconciling intra fees in per-wallet
+                            # open_positions needs the broader per-wallet redesign.
+                            from_per_wallet_transactions.in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
                         break
                     self._process_remaining_transfer_amount(
                         wallet_2_per_wallet_transactions,
