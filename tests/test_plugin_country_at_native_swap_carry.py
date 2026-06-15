@@ -26,6 +26,7 @@ from rp2.in_transaction import InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
 from rp2.out_transaction import OutTransaction
+from rp2.plugin.accounting_method.fifo import AccountingMethod as FifoAccountingMethod
 from rp2.plugin.accounting_method.moving_average_at import AccountingMethod
 from rp2.plugin.country.at import (
     AT,
@@ -333,6 +334,26 @@ class TestNativeATSwapCarry(unittest.TestCase):
                     "B2": self._input_data("B2", b2_in, b2_out),
                 }
             )
+
+    def test_swap_marker_with_non_pool_method_raises(self) -> None:
+        # Swap neutrality is only produced by moving_average_at. With any other configured method
+        # (here: fifo) the outgoing leg yields no carried cost basis, so the native runner must
+        # fail loudly rather than silently realize a taxable gain on a row classify_disposal still
+        # buckets as NEU_SWAP and carry no basis to the incoming leg.
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree[int, AbstractAccountingMethod]()
+        years_2_methods.insert_node(MIN_DATE.year, FifoAccountingMethod())
+        fifo_engine = AccountingEngine(years_2_methods)
+
+        b1_in = [self._buy("B1", 1, "2023-01-01 00:00:00 +0000", "1", "100")]
+        b1_out = [self._sell("B1", 2, "2023-03-01 00:00:00 +0000", "0.5", "1000", notes="at_swap_link=swap-x")]
+        b2_incoming = self._buy("B2", 1, "2023-03-01 00:00:00 +0000", "2", "1000", notes="at_swap_link=swap-x")
+        b2_out = [self._sell("B2", 2, "2023-04-01 00:00:00 +0000", "1", "100")]
+        asset_to_input_data = {
+            "B1": self._input_data("B1", b1_in, b1_out),
+            "B2": self._input_data("B2", [b2_incoming], b2_out),
+        }
+        with self.assertRaisesRegex(RP2ValueError, "requires the `moving_average_at` accounting method"):
+            compute_native_at_tax(self._configuration, fifo_engine, asset_to_input_data, collect_at_swap_link_pairs(list(asset_to_input_data.values())))
 
 
 if __name__ == "__main__":

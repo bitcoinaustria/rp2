@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from rp2.abstract_accounting_method import (
     AbstractAcquiredLotCandidates,
@@ -120,14 +120,19 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         self.__sync_neu_pool(lot_candidates, event_pool)
         selected, remaining = self.__find_non_exhausted_lot(lot_candidates, REGIME_NEU, pool_filter=event_pool)
         if selected is None:
+            # Returning None makes the engine raise the generic "Total in-transaction crypto value <
+            # total taxable" exhaustion error. Before that, surface a far more actionable diagnostic
+            # when the shortfall is specifically a pool mismatch: the disposal's pool is empty but
+            # other Neu pools still hold lots — the usual cause is funds acquired in one pool/wallet
+            # and disposed from another without re-tagging at_pool= (Kassiber pools per wallet).
+            self.__raise_on_neu_pool_mismatch(lot_candidates, event_pool, taxable_event)
             return None
-        pool_qty, pool_cost_total = lot_candidates.get_pool(event_pool)
-        pool_average: RP2Decimal = pool_cost_total / pool_qty if pool_qty > ZERO else ZERO
+        pool_average: RP2Decimal = lot_candidates.pool_average(event_pool)
         consumed: RP2Decimal = taxable_event_amount if taxable_event_amount < remaining else remaining
-        # Pool depletes at pool_average regardless of how the gain/loss is reported. Depleting
-        # `amount * pool_average` from cost_total leaves the running average unchanged by
+        # Pool depletes at pool_average regardless of how the gain/loss is reported. deduct_from_pool
+        # subtracts `amount * pool_average` from cost_total, leaving the running average unchanged by
         # construction, so swap neutrality and normal disposals preserve pool state identically.
-        self.__deduct_from_neu_pool(lot_candidates, event_pool, consumed, pool_average)
+        lot_candidates.deduct_from_pool(event_pool, consumed, pool_average)
         lot_candidates.clear_partial_amount(selected)
         if has_swap_link(taxable_event) and taxable_event is not None:
             # Validate the marker carries a non-empty id; an empty `at_swap_link=` would
@@ -163,6 +168,32 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
                 taxable_event_unit_cost_basis=pool_average,
             )
         return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining, unit_cost_basis_override=pool_average)
+
+    def __raise_on_neu_pool_mismatch(
+        self,
+        lot_candidates: PoolAcquiredLotCandidates,
+        event_pool: str,
+        taxable_event: Optional[AbstractTransaction],
+    ) -> None:
+        other_pools: Set[str] = set()
+        lots = lot_candidates.acquired_lot_list
+        upper: int = min(lot_candidates.to_index, len(lots) - 1)
+        for i in range(upper + 1):
+            lot: InTransaction = lots[i]
+            if classify_lot_regime(lot) != REGIME_NEU:
+                continue
+            lot_pool: str = pool_id_from_notes(lot.notes)
+            if lot_pool == event_pool:
+                continue
+            if lot_candidates.has_partial_amount(lot) and lot_candidates.get_partial_amount(lot) <= ZERO:
+                continue
+            other_pools.add(lot_pool)
+        if other_pools:
+            raise RP2ValueError(
+                f"Neuvermoegen disposal tagged at_pool={event_pool!r} has no available lots in that pool, but other Neu pool(s) "
+                f"{sorted(other_pools)} still hold lots. This usually means the disposal was tagged with a different pool than its "
+                f"acquisition (e.g. funds moved between wallets/pools without re-tagging at_pool=). Event: {taxable_event}"
+            )
 
     def __any_lot_available(
         self,
@@ -208,13 +239,3 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
             lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot))
         lot_candidates.set_pool_last_synced_index(pool, upper)
-
-    def __deduct_from_neu_pool(
-        self,
-        lot_candidates: PoolAcquiredLotCandidates,
-        pool: str,
-        amount: RP2Decimal,
-        pool_average: RP2Decimal,
-    ) -> None:
-        pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
-        lot_candidates.set_pool(pool, pool_qty - amount, pool_cost_total - amount * pool_average)

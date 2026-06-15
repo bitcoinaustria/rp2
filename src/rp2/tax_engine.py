@@ -93,10 +93,6 @@ class TaxEngineCursor:
             return None
         return self.__taxable_event_list[self.__taxable_event_index]
 
-    @property
-    def gain_loss_set(self) -> GainLossSet:
-        return self.__gain_loss_set
-
     def has_next(self) -> bool:
         return self.current_taxable_event is not None
 
@@ -104,6 +100,29 @@ class TaxEngineCursor:
         first_taxable_event: Optional[AbstractTransaction] = self.current_taxable_event
         if first_taxable_event is None:
             raise TaxableEventsExhaustedException()
+
+        # Earnings (STAKING/INTEREST/MINING/AIRDROP/...) are income at receipt, not disposals, and
+        # have no acquired lot. They must be handled before any call into the accounting method's
+        # seek: pool-based methods (moving_average, moving_average_at) deduct from the running pool
+        # as a side effect of seeking, and that deduction is never restored. Routing an earning
+        # through the seek would therefore silently drain the pool and overstate the gain on every
+        # subsequent disposal. Lot-tracking methods (fifo/lifo/hifo/lofo) are unaffected by the old
+        # ordering — their seek side effects are restored on the next consume — but handling
+        # earnings here is correct for every method and matches upstream's earn-first ordering.
+        if first_taxable_event.is_earning():
+            earn_gain_loss = GainLoss(self.__configuration, first_taxable_event.crypto_balance_change, first_taxable_event, None)
+            LOGGER.debug(
+                "tax_engine: taxable is earn: %s / %s + %s = %s: %s",
+                first_taxable_event.crypto_balance_change,
+                self.__total_amount,
+                first_taxable_event.crypto_balance_change,
+                self.__total_amount + first_taxable_event.crypto_balance_change,
+                earn_gain_loss,
+            )
+            self.__total_amount += first_taxable_event.crypto_balance_change
+            self.__gain_loss_set.add_entry(earn_gain_loss)
+            self.__taxable_event_index += 1
+            return TaxableEventComputation(first_taxable_event, (earn_gain_loss,), None)
 
         gain_losses: List[GainLoss] = []
         taxable_event_unit_cost_basis: Optional[RP2Decimal] = None
@@ -139,24 +158,8 @@ class TaxEngineCursor:
                 Configuration.type_check_positive_decimal("taxable_event_amount", taxable_event_amount)
                 Configuration.type_check_positive_decimal("acquired_lot_amount", acquired_lot_amount)
 
-                if taxable_event.is_earning():
-                    # Handle earnings first: they have no acquired-lot
-                    gain_loss = GainLoss(self.__configuration, taxable_event_amount, taxable_event, None)
-                    LOGGER.debug(
-                        "tax_engine: taxable is earn: %s / %s + %s = %s: %s",
-                        taxable_event_amount,
-                        self.__total_amount,
-                        taxable_event_amount,
-                        self.__total_amount + taxable_event_amount,
-                        gain_loss,
-                    )
-                    self.__total_amount += taxable_event_amount
-                    self.__gain_loss_set.add_entry(gain_loss)
-                    gain_losses.append(gain_loss)
-                    self.__current_acquired_lot = acquired_lot
-                    self.__current_acquired_lot_amount = acquired_lot_amount
-                    self.__taxable_event_index += 1
-                    break
+                # Earnings are handled before the seek above, so the taxable event here is always a
+                # disposal paired with a real acquired lot.
                 if taxable_event_amount == acquired_lot_amount:
                     gain_loss = GainLoss(
                         self.__configuration, taxable_event_amount, taxable_event, acquired_lot, unit_cost_basis_override=unit_cost_basis_override

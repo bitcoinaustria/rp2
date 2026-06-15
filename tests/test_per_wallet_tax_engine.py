@@ -240,6 +240,84 @@ class TestPerWalletTaxEngine(unittest.TestCase):
         self.assertEqual(artificial_lots[0].cost_basis_timestamp, in_cb.cost_basis_timestamp)
         self.assertEqual(per_wallet_computed.get_crypto_in_running_sum(artificial_lots[0]), RP2Decimal("3.0"))
 
+    def test_per_wallet_transfer_into_wallet_with_same_timestamp_lot(self) -> None:
+        # Regression: the artificial "to" lot created for a transfer carries a negative internal id
+        # and its timestamp is the transfer timestamp. When the destination wallet already owns a
+        # real lot at the EXACT same timestamp, the AVL disambiguator must sort the artificial lot
+        # above the real one (matching its position in the chronological lot list). The old raw-id
+        # padding sorted '-' below '0', so the artificial lot fell out of the candidate window and
+        # the destination sell failed with "Total in-transaction crypto value < total taxable".
+        transfer_timestamp = "2020-06-01 08:00:00 +0000"
+        in_cb = InTransaction(
+            self._configuration,
+            "2020-01-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Buy",
+            spot_price=RP2Decimal("10000"),
+            crypto_in=RP2Decimal("1.0"),
+            fiat_in_no_fee=RP2Decimal("10000"),
+            fiat_in_with_fee=RP2Decimal("10000"),
+            fiat_fee=RP2Decimal("0"),
+            unique_id="1",
+            row=1,
+        )
+        in_kr_same_ts = InTransaction(
+            self._configuration,
+            transfer_timestamp,  # same instant as the transfer below
+            "B1",
+            "Kraken",
+            "Alice",
+            "Buy",
+            spot_price=RP2Decimal("20000"),
+            crypto_in=RP2Decimal("1.0"),
+            fiat_in_no_fee=RP2Decimal("20000"),
+            fiat_in_with_fee=RP2Decimal("20000"),
+            fiat_fee=RP2Decimal("0"),
+            unique_id="2",
+            row=2,
+        )
+        intra = IntraTransaction(
+            self._configuration,
+            transfer_timestamp,
+            "B1",
+            from_exchange="Coinbase",
+            from_holder="Bob",
+            to_exchange="Kraken",
+            to_holder="Alice",
+            spot_price=RP2Decimal("15000"),
+            crypto_sent=RP2Decimal("1.0"),
+            crypto_received=RP2Decimal("1.0"),
+            unique_id="3",
+            row=3,
+        )
+        out_kr = OutTransaction(
+            self._configuration,
+            "2021-03-01 08:00:00 +0000",
+            "B1",
+            "Kraken",
+            "Alice",
+            "Sell",
+            spot_price=RP2Decimal("30000"),
+            crypto_out_no_fee=RP2Decimal("2.0"),  # consumes the real Kraken lot AND the transferred lot
+            crypto_fee=RP2Decimal("0"),
+            unique_id="4",
+            row=4,
+        )
+
+        input_data = InputData(
+            "B1",
+            self._build_in_set([in_cb, in_kr_same_ts]),
+            self._build_out_set([out_kr]),
+            self._build_intra_set([intra]),
+        )
+
+        # Must not raise: the transferred lot is found despite sharing a timestamp with the real lot.
+        per_wallet_computed = compute_tax_per_wallet(self._configuration, self._accounting_engine, self._transfer_semantics, input_data)
+        disposed = sum((g.crypto_amount for g in per_wallet_computed.gain_loss_set if isinstance(g, GainLoss)), RP2Decimal("0"))
+        self.assertEqual(disposed, RP2Decimal("2.0"))
+
     def test_per_wallet_transfer_of_earn_lot_does_not_double_count_income(self) -> None:
         interest = InTransaction(
             self._configuration,

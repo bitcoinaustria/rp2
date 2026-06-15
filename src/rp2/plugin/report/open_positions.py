@@ -242,8 +242,12 @@ class Generator(AbstractODSGenerator):
                 in_transaction = cast(InTransaction, current_transaction)
                 actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
                 effective_fiat_in_with_fee: RP2Decimal = computed_data.get_in_transaction_fiat_in_with_fee(in_transaction)
-                if actual_amount is not None:
+                if actual_amount is not None and in_transaction.crypto_in > ZERO:
                     transaction_cost_basis = (effective_fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
+                elif actual_amount is not None:
+                    # crypto_in can be zero (or negative) for STAKING income lots; such a lot
+                    # contributes no cost basis to open positions and must not divide by crypto_in.
+                    transaction_cost_basis = ZERO
                 else:
                     sold_percent = computed_data.get_in_lot_sold_percentage(in_transaction)
                     transaction_cost_basis = effective_fiat_in_with_fee * (RP2Decimal("1") - sold_percent)

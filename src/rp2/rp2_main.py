@@ -148,6 +148,9 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
 
         all_assets: List[str] = sorted(configuration.assets)
         if args.asset:
+            if args.asset not in configuration.assets:
+                LOGGER.error("Asset '%s' (from --asset) is not configured (known assets: %s). Exiting...", args.asset, ", ".join(all_assets))
+                sys.exit(1)
             selected_assets: List[str] = [args.asset]
         else:
             selected_assets = list(all_assets)
@@ -293,10 +296,6 @@ def _resolve_application_method(configuration: Configuration) -> str:
         LOGGER.error("Year-scoped application method transitions are not supported yet: configure a single application method for the whole run. Exiting...")
         sys.exit(1)
     return next(iter(application_methods))
-
-
-def _uses_per_wallet_application(configuration: Configuration) -> bool:
-    return _resolve_application_method(configuration) == "per_wallet"
 
 
 def _resolve_transfer_semantics(

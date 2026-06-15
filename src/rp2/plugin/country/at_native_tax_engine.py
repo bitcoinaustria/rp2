@@ -91,6 +91,19 @@ def compute_native_at_tax(
             result: TaxableEventComputation = cursors[asset].consume_next_taxable_event()
             source_pair: AtSwapPair | None = source_key_to_pair.get(_event_key(asset, result.taxable_event))
             if source_pair is not None:
+                if result.taxable_event_unit_cost_basis is None:
+                    # The outgoing leg was paired (validate_at_swap_link_pairing passed) but the
+                    # accounting method produced no carried cost basis. Only `moving_average_at`
+                    # honors the swap marker — it emits the zero-gain override and the Neu pool
+                    # average to carry. fifo / plain moving_average would silently realize a taxable
+                    # gain on the outgoing leg while classify_disposal still buckets it NEU_SWAP, and
+                    # carry no basis to the incoming leg. Fail loudly instead of under-reporting.
+                    raise RP2ValueError(
+                        f"Austrian swap neutrality requires the `moving_average_at` accounting method, but the outgoing leg of "
+                        f"at_swap_link={source_pair.swap_id} ({source_pair.out_asset} {source_pair.out_transaction.internal_id}) produced no "
+                        f"carried cost basis. The configured accounting method did not honor the swap marker. Re-run with `-m moving_average_at` "
+                        f"(the AT default), or remove the at_swap_link markers if you intend swaps to be taxable disposals."
+                    )
                 _resolve_swap_pair(result, source_pair, basis_overrides_by_asset, resolved_incoming_by_asset)
             progressed = True
             break
@@ -157,6 +170,14 @@ def _incoming_can_affect_event(in_transaction: InTransaction, taxable_event: Abs
 
     if classify_lot_regime(in_transaction) != REGIME_NEU:
         return False
+    # Only an *explicit* at_regime=alt event is known not to touch the Neu pool. An unmarked event
+    # that would route to Alt purely by lot availability is treated conservatively as Neu-affecting,
+    # because this layer has no per-pool lot-availability view (that lives in moving_average_at). The
+    # cost of the conservatism is at most a spurious "Unable to order ..." error in a contrived swap
+    # cycle where every asset's only progress depends on an unmarked-Alt disposal — never a wrong
+    # number. The fix (disambiguate that disposal with at_regime=alt) is in the caller's hands, and
+    # making this precise would require threading lot availability across assets, so we fail loud
+    # rather than risk mis-ordering the basis carry.
     if event_has_explicit_regime(taxable_event) and explicit_event_regime(taxable_event) == REGIME_ALT:
         return False
     return pool_id_from_notes(in_transaction.notes) == pool_id_from_notes(taxable_event.notes)

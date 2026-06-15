@@ -36,6 +36,30 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
         # Go-style, table-based tests. The input field contains test input and the want field contains the expected results.
         tests: List[_Test] = [
             _Test(
+                # Multi-lot self-transfer with a crypto fee. The principal returns to the wallet, but
+                # the fee (1) genuinely leaves it and must reduce the remaining balance. Under FIFO
+                # the transfer consumes lot "1" then lot "2", so the fee is paid from the last lot
+                # reached, "2", which ends at 4 - 1 = 3. No artificial "to" lots are created for a
+                # self-transfer.
+                description="Self-transfer with crypto fee across two lots (fee deducted from the last consumed lot)",
+                input=[
+                    InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 8),
+                    InTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", 120, 4),
+                    IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 10, 9),
+                ],
+                want_per_wallet_transactions={
+                    Account("Coinbase", "Bob"): [
+                        InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 8),
+                        InTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", 120, 4),
+                        IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 10, 9),
+                    ],
+                },
+                want_amounts={
+                    Account(exchange='Coinbase', holder='Bob'): {'1': 8, '2': 3},
+                },
+                want_error="",
+            ),
+            _Test(
                 description="Interlaced in and intra transactions",
                 input=[
                     InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 10),

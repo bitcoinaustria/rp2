@@ -350,32 +350,41 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                 description=(
                     "Same-account transfers. Total transferred sum is greater than crypto in amount, but individual transfers are not (one in, three intra)."
                 ),
+                # Self-transfer fees genuinely leave the wallet (fee 1 on intra "2" and "4"), so the
+                # running balance falls to 8 and later transfers must fit it: 10 -> 9 (intra 2) ->
+                # 9 (intra 3, fee-free) -> 8 (intra 4). Lot "1" ends at 10 - 1 - 1 = 8.
                 input=[
                     InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 10),
                     IntraTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", "Coinbase", "Bob", 120, 9, 8),
-                    IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 10, 10),
-                    IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 10, 9),
+                    IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 9, 9),
+                    IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 9, 8),
                 ],
                 want_per_wallet_transactions={
                     Account("Coinbase", "Bob"): [
                         InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 10),
                         IntraTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", "Coinbase", "Bob", 120, 9, 8),
-                        IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 10, 10),
-                        IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 10, 9),
+                        IntraTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", "Coinbase", "Bob", 130, 9, 9),
+                        IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 9, 8),
                     ],
                 },
-                want_amounts={Account(exchange='Coinbase', holder='Bob'): {'1': 10}},
+                want_amounts={Account(exchange='Coinbase', holder='Bob'): {'1': 8}},
                 want_error="",
             ),
             _Test(
                 description=(
                     "Same-account transfer. Total transferred sum is greater than crypto in amount, " "but individual transfers are not (three in, three intra)"
                 ),
+                # Fee-free self-transfers: with a multi-lot self-transfer the fee would land on a
+                # different lot per accounting method (FIFO's last consumed lot != LIFO's), making
+                # the result semantics-dependent. To stay in the semantics-independent suite these
+                # transfers recycle the full balance with no fee, so all lots end at their original
+                # amounts regardless of method. (Multi-lot self-transfer fees are covered in the
+                # semantics-dependent suite; single-lot fees in the scenario above.)
                 input=[
                     InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 8),
                     InTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", 120, 4),
                     InTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", 130, 2),
-                    IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 14, 13),
+                    IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 14, 14),
                     IntraTransactionDescriptor("5", 5, 5, "Coinbase", "Bob", "Coinbase", "Bob", 150, 12, 12),
                     IntraTransactionDescriptor("6", 6, 6, "Coinbase", "Bob", "Coinbase", "Bob", 150, 14, 14),
                 ],
@@ -385,7 +394,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                         InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 8),
                         InTransactionDescriptor("2", 2, 2, "Coinbase", "Bob", 120, 4),
                         InTransactionDescriptor("3", 3, 3, "Coinbase", "Bob", 130, 2),
-                        IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 14, 13),
+                        IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 14, 14),
                         IntraTransactionDescriptor("5", 5, 5, "Coinbase", "Bob", "Coinbase", "Bob", 150, 12, 12),
                         IntraTransactionDescriptor("6", 6, 6, "Coinbase", "Bob", "Coinbase", "Bob", 150, 14, 14),
                     ],

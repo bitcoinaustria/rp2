@@ -208,9 +208,11 @@ class TestClassifyDisposal(unittest.TestCase):
         self.assertIn(AtDisposalCategory.ALT_TAXFREE, buckets)
         self.assertNotIn(AtDisposalCategory.ALT_SPEKULATION, buckets)
 
-    def test_altvermoegen_exactly_365_day_holding_is_taxfree(self) -> None:
-        # Boundary case: Spekulationsfrist threshold is `holding_days >= 365`.
-        # Buy 2020-06-01, sell 2021-06-01 → exactly 365 days → tax-free.
+    def test_altvermoegen_on_one_year_anniversary_is_spekulation(self) -> None:
+        # Boundary case: the Spekulationsfrist is one calendar year (§ 108 BAO), ending on the day
+        # of the following year that corresponds by number to the acquisition day. A disposal ON
+        # that anniversary is still inside the Frist and therefore taxable. (This is also the
+        # conservative reading.) Buy 2020-06-01, sell 2021-06-01 → on the anniversary → spekulation.
         gls = self._compute(
             in_txs=[self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="100")],
             out_txs=[
@@ -224,8 +226,46 @@ class TestClassifyDisposal(unittest.TestCase):
             ],
         )
         buckets = self._bucket(gls)
+        self.assertIn(AtDisposalCategory.ALT_SPEKULATION, buckets)
+        self.assertNotIn(AtDisposalCategory.ALT_TAXFREE, buckets)
+
+    def test_altvermoegen_day_after_anniversary_is_taxfree(self) -> None:
+        # One day past the anniversary → past the Frist → tax-free.
+        gls = self._compute(
+            in_txs=[self._buy(row=1, timestamp="2020-06-01 00:00:00 +0000", crypto_in="1", spot_price="100")],
+            out_txs=[
+                self._sell(
+                    row=2,
+                    timestamp="2021-06-02 00:00:00 +0000",
+                    crypto_out="0.5",
+                    spot_price="300",
+                    notes="at_regime=alt",
+                ),
+            ],
+        )
+        buckets = self._bucket(gls)
         self.assertIn(AtDisposalCategory.ALT_TAXFREE, buckets)
         self.assertNotIn(AtDisposalCategory.ALT_SPEKULATION, buckets)
+
+    def test_altvermoegen_leap_day_in_holding_period_uses_calendar_year(self) -> None:
+        # Regression: a fixed 365-day threshold mis-classifies holdings that span a 29 February.
+        # Buy 2020-01-15, sell 2021-01-14 = 365 days because 2020-02-29 falls inside the period, but
+        # one day short of the calendar-year anniversary (2021-01-15) → still spekulation (taxable).
+        gls = self._compute(
+            in_txs=[self._buy(row=1, timestamp="2020-01-15 00:00:00 +0000", crypto_in="1", spot_price="100")],
+            out_txs=[
+                self._sell(
+                    row=2,
+                    timestamp="2021-01-14 00:00:00 +0000",
+                    crypto_out="0.5",
+                    spot_price="300",
+                    notes="at_regime=alt",
+                ),
+            ],
+        )
+        buckets = self._bucket(gls)
+        self.assertIn(AtDisposalCategory.ALT_SPEKULATION, buckets)
+        self.assertNotIn(AtDisposalCategory.ALT_TAXFREE, buckets)
 
     def test_altvermoegen_one_day_short_of_spekulationsfrist_is_spekulation(self) -> None:
         # 2020-06-01 → 2021-05-31 = 364 days → still within Spekulationsfrist.

@@ -172,6 +172,24 @@ class TransferAnalyzer:
         to_account = Account(transfer.to_exchange, transfer.to_holder)
         return to_account in acquired_lot.originates_from
 
+    def _finalize_self_transfer(
+        self,
+        from_per_wallet_transactions: PerWalletTransactions,
+        original_actual_amounts: Dict[InTransaction, RP2Decimal],
+        final_lot: InTransaction,
+        fee: RP2Decimal,
+    ) -> None:
+        # On a self-transfer the principal returns to the same wallet, so every touched lot is
+        # restored to its original amount. But the crypto fee genuinely left the wallet (it is a
+        # taxable disposal modeled on the IntraTransaction itself), so after restoring the principal
+        # we re-deduct the fee from the final lot — mirroring the cross-wallet path, which deducts the
+        # fee from the last lot inside _process_remaining_transfer_amount. Without this the wallet's
+        # remaining balance (open_positions, GlobalAllocator) would be overstated by the fee.
+        in_transactions = from_per_wallet_transactions.in_transactions
+        in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
+        if fee > ZERO:
+            in_transactions.set_partial_amount(final_lot, in_transactions.get_partial_amount(final_lot) - fee)
+
     # _process_remaining_transfer_amount processes the remaining amount of a transfer (that has not yet been assigned to in lots by transfer analysis):
     # it handles self-transfers, cycles and normal transfers. In the last case it creates an artificial InTransaction to model the remaining amount.
     def _process_remaining_transfer_amount(
@@ -216,15 +234,7 @@ class TransferAnalyzer:
     # This function performs transfer analysis on an InputData and generates as many new InputData objects as there are wallets.
     # For details see https://github.com/eprbell/rp2/wiki/Adding-Per%E2%80%90Wallet-Application-to-RP2.
     def analyze(self) -> Dict[Account, InputData]:  # pylint: disable=too-many-branches
-
-        all_transactions: TransactionSet = TransactionSet(self.__configuration, "MIXED", self.__universal_input_data.asset)
-        for transaction_set in [
-            self.__universal_input_data.unfiltered_in_transaction_set,
-            self.__universal_input_data.unfiltered_out_transaction_set,
-            self.__universal_input_data.unfiltered_intra_transaction_set,
-        ]:
-            for transaction in transaction_set:
-                all_transactions.add_entry(transaction)
+        all_transactions: TransactionSet = self.__universal_input_data.create_all_transaction_set(self.__configuration)
 
         wallet_2_per_wallet_transactions: Dict[Account, PerWalletTransactions] = {}
         for transaction in all_transactions:
@@ -301,7 +311,7 @@ class TransferAnalyzer:
                             fee,
                         )
                         if transaction.is_self_transfer():
-                            from_per_wallet_transactions.in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
+                            self._finalize_self_transfer(from_per_wallet_transactions, original_actual_amounts, current_in_lot_and_amount.acquired_lot, fee)
                         break
                     self._process_remaining_transfer_amount(
                         wallet_2_per_wallet_transactions,

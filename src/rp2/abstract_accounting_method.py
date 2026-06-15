@@ -180,13 +180,14 @@ class ChronologicalAcquiredLotCandidates(AbstractAcquiredLotCandidates):
 
 # Candidates container for pool-based accounting methods (running weighted-average cost
 # basis). The pool state lives on the container — one (qty, cost_total) per free-form pool_id
-# — so it shares the container's lifetime and cannot be aliased across runs. Methods that sync
-# all pools at once can use `last_synced_index`; methods that deliberately sync one pool at a
-# time can use the per-pool cursor.
+# — so it shares the container's lifetime and cannot be aliased across runs. Each pool tracks its
+# own "last synced" lot index, so a method may sync one pool at a time (moving_average_at, which
+# partitions by regime/pool marker) or sync a single conventional pool (the generic
+# moving_average); both go through the same per-pool cursor.
 #
-# The generic moving_average method uses a single conventional pool id; regime-aware methods
-# (e.g. moving_average_at) partition into multiple pool ids based on per-lot markers. The
-# container is agnostic about pool semantics — it only stores and returns the tuple.
+# The container is agnostic about pool semantics — it only stores the (qty, cost_total) tuple and
+# the per-pool sync cursor, and exposes the running-average / depletion arithmetic both methods
+# share.
 class PoolAcquiredLotCandidates(ChronologicalAcquiredLotCandidates):
     def __init__(
         self,
@@ -197,7 +198,6 @@ class PoolAcquiredLotCandidates(ChronologicalAcquiredLotCandidates):
     ) -> None:
         super().__init__(accounting_method, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
         self.__pool_state: Dict[str, Tuple[RP2Decimal, RP2Decimal]] = {}
-        self.__last_synced_index: int = -1
         self.__pool_2_last_synced_index: Dict[str, int] = {}
 
     def get_pool(self, pool_id: str) -> Tuple[RP2Decimal, RP2Decimal]:
@@ -206,12 +206,18 @@ class PoolAcquiredLotCandidates(ChronologicalAcquiredLotCandidates):
     def set_pool(self, pool_id: str, qty: RP2Decimal, cost_total: RP2Decimal) -> None:
         self.__pool_state[pool_id] = (qty, cost_total)
 
-    @property
-    def last_synced_index(self) -> int:
-        return self.__last_synced_index
+    # Running weighted-average unit cost of a pool (ZERO when empty). Disposals surface this as the
+    # per-unit cost basis; only acquisitions (via the method's __sync) move it.
+    def pool_average(self, pool_id: str) -> RP2Decimal:
+        pool_qty, pool_cost_total = self.get_pool(pool_id)
+        return pool_cost_total / pool_qty if pool_qty > ZERO else ZERO
 
-    def set_last_synced_index(self, value: int) -> None:
-        self.__last_synced_index = value
+    # Deplete a pool by `amount` at `unit_average`. Subtracting amount*unit_average from cost_total
+    # while subtracting amount from qty leaves the running average unchanged by construction, so
+    # normal disposals and swap-neutral depletions preserve pool state identically.
+    def deduct_from_pool(self, pool_id: str, amount: RP2Decimal, unit_average: RP2Decimal) -> None:
+        pool_qty, pool_cost_total = self.get_pool(pool_id)
+        self.set_pool(pool_id, pool_qty - amount, pool_cost_total - amount * unit_average)
 
     def get_pool_last_synced_index(self, pool_id: str) -> int:
         return self.__pool_2_last_synced_index.get(pool_id, -1)

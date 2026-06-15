@@ -23,7 +23,7 @@ from rp2.abstract_accounting_method import (
 )
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.in_transaction import InTransaction
-from rp2.rp2_decimal import ZERO, RP2Decimal
+from rp2.rp2_decimal import RP2Decimal
 from rp2.rp2_error import RP2TypeError
 
 # Single conventional pool id used by the generic moving-average method. Regime-aware
@@ -69,13 +69,12 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         if fifo_result is None:
             return None
 
-        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
-        pool_average: RP2Decimal = pool_cost_total / pool_qty if pool_qty > ZERO else ZERO
+        pool_average: RP2Decimal = lot_candidates.pool_average(_DEFAULT_POOL)
 
         # The engine consumes min(taxable_event_amount, fifo_result.amount) from the pool this
         # call; residual (if any) stays for the next seek call and is accounted for then.
         consumed: RP2Decimal = taxable_event_amount if taxable_event_amount < fifo_result.amount else fifo_result.amount
-        self.__deduct_from_pool(lot_candidates, consumed, pool_average)
+        lot_candidates.deduct_from_pool(_DEFAULT_POOL, consumed, pool_average)
 
         return AcquiredLotAndAmount(
             acquired_lot=fifo_result.acquired_lot,
@@ -85,7 +84,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
 
     def __sync_pool(self, lot_candidates: PoolAcquiredLotCandidates) -> None:
         pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
-        last_synced: int = lot_candidates.last_synced_index
+        last_synced: int = lot_candidates.get_pool_last_synced_index(_DEFAULT_POOL)
         lots = lot_candidates.acquired_lot_list
         upper_bound: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(last_synced + 1, upper_bound + 1):
@@ -93,15 +92,4 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             pool_qty = pool_qty + lot.crypto_in
             pool_cost_total = pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot)
         lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
-        lot_candidates.set_last_synced_index(upper_bound)
-
-    def __deduct_from_pool(
-        self,
-        lot_candidates: PoolAcquiredLotCandidates,
-        amount: RP2Decimal,
-        pool_average: RP2Decimal,
-    ) -> None:
-        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
-        pool_qty = pool_qty - amount
-        pool_cost_total = pool_cost_total - amount * pool_average
-        lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
+        lot_candidates.set_pool_last_synced_index(_DEFAULT_POOL, upper_bound)
