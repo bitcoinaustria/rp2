@@ -149,7 +149,10 @@ class TestNativeATSwapCarry(unittest.TestCase):
 
     def _compute(self, asset_to_input_data: Dict[str, InputData]) -> Dict[str, ComputedData]:
         return compute_native_at_tax(
-            self._configuration, self._make_engine(), asset_to_input_data, collect_at_swap_link_pairs(list(asset_to_input_data.values()))
+            configuration=self._configuration,
+            accounting_engine=self._make_engine(),
+            asset_to_input_data=asset_to_input_data,
+            swap_pairs=collect_at_swap_link_pairs(list(asset_to_input_data.values())),
         )
 
     def _gain_loss_list(self, computed_data: ComputedData) -> List[GainLoss]:
@@ -376,7 +379,12 @@ class TestNativeATSwapCarry(unittest.TestCase):
             "B2": self._input_data("B2", [b2_incoming], b2_out),
         }
         with self.assertRaisesRegex(RP2ValueError, "requires the `moving_average_at` accounting method"):
-            compute_native_at_tax(self._configuration, fifo_engine, asset_to_input_data, collect_at_swap_link_pairs(list(asset_to_input_data.values())))
+            compute_native_at_tax(
+                configuration=self._configuration,
+                accounting_engine=fifo_engine,
+                asset_to_input_data=asset_to_input_data,
+                swap_pairs=collect_at_swap_link_pairs(list(asset_to_input_data.values())),
+            )
 
 
 if __name__ == "__main__":

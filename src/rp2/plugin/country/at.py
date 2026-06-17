@@ -413,7 +413,12 @@ class AT(AbstractCountry):
         swap_pairs: Dict[str, AtSwapPair] = collect_at_swap_link_pairs(list(asset_to_input_data.values()))
         if not swap_pairs:
             return None
-        return compute_native_at_tax(configuration, accounting_engine, asset_to_input_data, swap_pairs)
+        return compute_native_at_tax(
+            configuration=configuration,
+            accounting_engine=accounting_engine,
+            asset_to_input_data=asset_to_input_data,
+            swap_pairs=swap_pairs,
+        )
 
 
 # Austria-specific entry point

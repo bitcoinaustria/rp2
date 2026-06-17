@@ -67,9 +67,9 @@ def compute_native_at_tax(
     resolved_incoming_by_asset: dict[str, set[InTransaction]] = {asset: set() for asset in asset_to_input_data}
     cursors: dict[str, TaxEngineCursor] = {
         asset: TaxEngineCursor(
-            configuration,
-            accounting_engine,
-            input_data,
+            configuration=configuration,
+            accounting_engine=accounting_engine,
+            input_data=input_data,
             acquired_lot_2_fiat_in_with_fee_override=basis_overrides_by_asset[asset],
         )
         for asset, input_data in asset_to_input_data.items()
