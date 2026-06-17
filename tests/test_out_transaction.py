@@ -36,6 +36,43 @@ class TestOutTransaction(unittest.TestCase):
     def setUp(self) -> None:
         self.maxDiff = None  # pylint: disable=invalid-name
 
+    def test_lost_transaction_has_zero_proceeds(self) -> None:
+        # A LOST disposal must report zero proceeds by default (full capital loss), even though it carries a
+        # dummy spot_price (spot_price == 0 is rejected). See https://github.com/bitcoinaustria/rp2/issues/10
+        # (mirrors upstream eprbell/rp2#139).
+        lost: OutTransaction = OutTransaction(
+            self._configuration,
+            "6/1/2020 3:59:59 -04:00",
+            "B1",
+            "Coinbase Pro",
+            "Bob",
+            "LOST",
+            RP2Decimal("1000"),
+            RP2Decimal("2"),
+            RP2Decimal("0"),
+            row=40,
+        )
+        self.assertTrue(lost.is_taxable())
+        self.assertEqual(RP2Decimal("0"), lost.fiat_taxable_amount)
+        # The crypto amount disposed is still the real lost amount (only proceeds are zeroed).
+        self.assertEqual(RP2Decimal("2"), lost.crypto_taxable_amount)
+
+        # An explicitly-provided fiat_out_no_fee (e.g. a partial bankruptcy recovery) is honored as proceeds.
+        lost_with_recovery: OutTransaction = OutTransaction(
+            self._configuration,
+            "6/1/2020 3:59:59 -04:00",
+            "B1",
+            "Coinbase Pro",
+            "Bob",
+            "LOST",
+            RP2Decimal("1000"),
+            RP2Decimal("2"),
+            RP2Decimal("0"),
+            fiat_out_no_fee=RP2Decimal("50"),
+            row=41,
+        )
+        self.assertEqual(RP2Decimal("50"), lost_with_recovery.fiat_taxable_amount)
+
     def test_taxable_out_transaction(self) -> None:
         out_transaction: OutTransaction = OutTransaction(
             self._configuration,
