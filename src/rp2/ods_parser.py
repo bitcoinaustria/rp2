@@ -122,7 +122,15 @@ def parse_ods(configuration: Configuration, asset: str, input_file_handle: Any) 
                 raise RP2ValueError(f"{asset}({i + 1}): Found data with no header")
         elif current_table_type is not None and current_table_row_count > 1:
             # Transaction line
-            _create_and_process_transaction(configuration, row_values, current_table_type, i + 1, unfiltered_transaction_sets, artificial_transaction_list)
+            try:
+                _create_and_process_transaction(configuration, row_values, current_table_type, i + 1, unfiltered_transaction_sets, artificial_transaction_list)
+            except RP2Error as exc:
+                # Prefix the asset and spreadsheet row number to any error raised while building the transaction,
+                # so a bad cell can be located quickly (e.g. "B1(42): Parameter 'crypto_fee' has zero value").
+                # The original exception type is preserved (only the message is augmented) to keep the existing
+                # error-type contract intact. The header-detection branch above intentionally swallows errors and
+                # is left untouched.
+                raise type(exc)(f"{asset}({i + 1}): {exc}") from exc
         current_table_row_count += 1
 
     if current_table_type is not None:
