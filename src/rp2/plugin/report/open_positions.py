@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, cast
 
 from rp2.abstract_country import AbstractCountry
+from rp2.balance import CRYPTO_BALANCE_DECIMAL_MASK
 from rp2.computed_data import ComputedData
 from rp2.in_transaction import InTransaction
 from rp2.localization import _
@@ -237,8 +238,11 @@ class Generator(AbstractODSGenerator):
                 raise RP2TypeError(f"Parameter 'asset' has non-string value {asset}")
             ComputedData.type_check("computed_data", computed_data)
 
-            # process in-flow transactions to collect the fiat cost basis data.
-            for current_transaction in computed_data.in_transaction_set:
+            # process in-flow transactions to collect the fiat cost basis data. Open positions are the holdings
+            # as of to_date, so this uses to_date-bounded, from_date-independent views (see ComputedData):
+            # otherwise a -f/--from-date would drop the cost basis of lots acquired before the window even
+            # though they are still held. See issue #8 (mirrors upstream eprbell/rp2#105).
+            for current_transaction in computed_data.open_position_in_transaction_set:
                 in_transaction = cast(InTransaction, current_transaction)
                 actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
                 effective_fiat_in_with_fee: RP2Decimal = computed_data.get_in_transaction_fiat_in_with_fee(in_transaction)
@@ -249,7 +253,7 @@ class Generator(AbstractODSGenerator):
                     # contributes no cost basis to open positions and must not divide by crypto_in.
                     transaction_cost_basis = ZERO
                 else:
-                    sold_percent = computed_data.get_in_lot_sold_percentage(in_transaction)
+                    sold_percent = computed_data.get_open_position_in_lot_sold_percentage(in_transaction)
                     transaction_cost_basis = effective_fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
 
                 if transaction_cost_basis > ZERO:
@@ -261,7 +265,12 @@ class Generator(AbstractODSGenerator):
 
             # process balance set data for the asset to collect holder and crypto balance data.
             for balance_set in computed_data.balance_set:
-                if balance_set.final_balance > ZERO:
+                # Treat sub-1e-10 residuals as zero so floating dust (e.g. 0.00000000003) does not surface as a
+                # spurious open position or skew the per-unit cost basis. Uses the same precision mask the
+                # balance engine applies to its zero checks. See issue #9 (mirrors upstream eprbell/rp2#112).
+                if balance_set.final_balance > ZERO and not RP2Decimal.is_equal_within_precision(
+                    balance_set.final_balance, ZERO, CRYPTO_BALANCE_DECIMAL_MASK
+                ):
                     if balance_set.holder not in holders:
                         holders.append(balance_set.holder)
 
