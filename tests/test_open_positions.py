@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import tempfile
 import unittest
 from datetime import date
 from typing import cast
@@ -22,12 +24,14 @@ from rp2.abstract_accounting_method import AbstractAccountingMethod
 from rp2.accounting_engine import AccountingEngine
 from rp2.balance import CRYPTO_BALANCE_DECIMAL_MASK
 from rp2.computed_data import ComputedData
-from rp2.configuration import MIN_DATE, Configuration
+from rp2.configuration import MAX_DATE, MIN_DATE, Configuration
 from rp2.in_transaction import InTransaction
 from rp2.input_data import InputData
 from rp2.ods_parser import open_ods, parse_ods
+from rp2.out_transaction import OutTransaction
 from rp2.plugin.accounting_method.fifo import AccountingMethod
 from rp2.plugin.country.us import US
+from rp2.plugin.report.open_positions import Generator
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
@@ -95,6 +99,60 @@ class TestOpenPositions(unittest.TestCase):
         # genuine dust collapses to zero while a real (if tiny) holding does not.
         self.assertTrue(RP2Decimal.is_equal_within_precision(RP2Decimal("0.00000000003"), ZERO, CRYPTO_BALANCE_DECIMAL_MASK))
         self.assertFalse(RP2Decimal.is_equal_within_precision(RP2Decimal("0.00000001"), ZERO, CRYPTO_BALANCE_DECIMAL_MASK))
+
+    def _dust_position_computed_data(self) -> ComputedData:
+        # One BUY of 1.0 and one SELL of 0.99999999997 leave a 3e-11 residual balance: below
+        # CRYPTO_BALANCE_DECIMAL_MASK (1e-10), so the balance loop drops it as dust, while the lot keeps a
+        # residual fiat cost basis above the coarser 1e-13 comparison precision. That asymmetry is exactly what
+        # crashed the report (issue #9). Built from synthetic transactions (no ODS fixture carries such dust).
+        config: Configuration = Configuration("./config/test_data.ini", US())
+        asset: str = "B1"
+        in_set: TransactionSet = TransactionSet(config, "IN", asset, MIN_DATE, MAX_DATE)
+        in_set.add_entry(
+            InTransaction(config, "2020-01-01 00:00:00 +0000", asset, "Coinbase", "Bob", "BUY", RP2Decimal("100"), RP2Decimal("1.0"), row=1)
+        )
+        out_set: TransactionSet = TransactionSet(config, "OUT", asset, MIN_DATE, MAX_DATE)
+        out_set.add_entry(
+            OutTransaction(
+                config, "2020-02-01 00:00:00 +0000", asset, "Coinbase", "Bob", "SELL", RP2Decimal("100"), RP2Decimal("0.99999999997"), RP2Decimal("0"), row=2
+            )
+        )
+        intra_set: TransactionSet = TransactionSet(config, "INTRA", asset, MIN_DATE, MAX_DATE)
+        input_data: InputData = InputData(asset, in_set, out_set, intra_set)
+        return compute_tax(config, self._accounting_engine, input_data)
+
+    def test_dusted_out_position_does_not_crash_report(self) -> None:
+        # Regression for the asymmetric dust filter: an asset whose entire balance is sub-1e-10 dust (so the
+        # balance loop drops it) but which still carries a residual cost basis used to raise KeyError (then
+        # ZeroDivisionError) when open_positions divided that basis by an absent/zero crypto balance. The report
+        # must now generate cleanly and simply omit the dusted position. See
+        # https://github.com/bitcoinaustria/rp2/issues/9.
+        computed_data: ComputedData = self._dust_position_computed_data()
+
+        # Precondition: the residual balance is genuine dust under the balance mask (so this really exercises the
+        # crashing path), yet still strictly positive under the coarser 1e-13 comparison -- i.e. the asymmetric
+        # window where the balance is dropped but the cost basis survives.
+        residual: RP2Decimal = ZERO
+        for balance in computed_data.balance_set:
+            residual += balance.final_balance
+        self.assertGreater(residual, ZERO)
+        self.assertTrue(RP2Decimal.is_equal_within_precision(residual, ZERO, CRYPTO_BALANCE_DECIMAL_MASK))
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            # Must not raise (previously KeyError: 'B1').
+            Generator().generate(
+                country=US(),
+                years_2_accounting_method_names={MIN_DATE.year: "fifo"},
+                asset_to_computed_data={"B1": computed_data},
+                output_dir_path=output_dir,
+                output_file_prefix="test_dust_",
+                from_date=MIN_DATE,
+                to_date=MAX_DATE,
+                generation_language="en",
+            )
+            # generate() writes the report file only at the very end, so a non-empty output dir proves it ran to
+            # completion rather than bailing out early.
+            self.assertTrue(os.listdir(output_dir), "open_positions report was not written")
 
 
 if __name__ == "__main__":

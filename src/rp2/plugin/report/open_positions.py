@@ -289,8 +289,18 @@ class Generator(AbstractODSGenerator):
 
         # Now looping through the assets to do the reporting.
         for asset, asset_cost_basis in asset_cost_bases.items():
+            holder_balances: Optional[Dict[str, RP2Decimal]] = asset_crypto_balance_holder.get(asset)
+            if not holder_balances:
+                # The asset retains only sub-dust crypto (its balances were all dropped by the balance loop's
+                # CRYPTO_BALANCE_DECIMAL_MASK (1e-10) filter), yet a residual fiat cost basis -- quantized at the
+                # 1e-13 comparison precision rather than the 1e-10 dust mask -- kept it in asset_cost_bases. Such
+                # an asset has no open position to report: skip it instead of dividing a real cost basis by a
+                # zero/absent crypto balance, which would otherwise raise KeyError here (and at the Asset-Exchange
+                # loop below) or ZeroDivisionError. Realized gains are handled by the tax engine, not this report.
+                # See https://github.com/bitcoinaustria/rp2/issues/9.
+                continue
             total_crypto_balance = ZERO
-            for crypto_balance in asset_crypto_balance_holder[asset].values():
+            for crypto_balance in holder_balances.values():
                 total_crypto_balance += crypto_balance
 
             unit_cost_basis: RP2Decimal = asset_cost_basis / total_crypto_balance
