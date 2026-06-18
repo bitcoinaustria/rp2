@@ -45,7 +45,10 @@ class AcquiredLotCandidatesOrder(Enum):
 
 
 class AcquiredLotSortKey(NamedTuple):
-    spot_price: RP2Decimal
+    # Primary ordering key for feature-based accounting methods; NOT always a spot price. HIFO/LOFO put the
+    # fee-inclusive per-unit cost basis here (see fee_inclusive_unit_cost_basis), and LIFO puts ZERO (so it is
+    # purely timestamp-ordered). heapq compares these tuples lexicographically, so this field drives selection.
+    cost_key: RP2Decimal
     timestamp: float
     internal_id_int: int
 
