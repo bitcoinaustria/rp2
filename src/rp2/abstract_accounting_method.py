@@ -45,9 +45,23 @@ class AcquiredLotCandidatesOrder(Enum):
 
 
 class AcquiredLotSortKey(NamedTuple):
-    spot_price: RP2Decimal
+    # Primary ordering key for feature-based accounting methods; NOT always a spot price. HIFO/LOFO put the
+    # fee-inclusive per-unit cost basis here (see fee_inclusive_unit_cost_basis), and LIFO puts ZERO (so it is
+    # purely timestamp-ordered). heapq compares these tuples lexicographically, so this field drives selection.
+    cost_key: RP2Decimal
     timestamp: float
     internal_id_int: int
+
+
+def fee_inclusive_unit_cost_basis(lot: InTransaction) -> RP2Decimal:
+    # Per-unit acquisition cost INCLUDING fees (IRS Publication 551 / virtual-currency FAQ Q8): this is the
+    # basis cost-ordered accounting methods (HIFO/LOFO) should rank lots on, rather than the fee-exclusive
+    # spot_price. Earn-type lots (e.g. STAKING/INTEREST income) may carry crypto_in <= 0, for which a
+    # fee-inclusive per-unit basis is undefined (and would divide by zero), so we fall back to spot_price for
+    # ordering purposes only. See https://github.com/bitcoinaustria/rp2/issues/11 (mirrors upstream eprbell/rp2#150).
+    if lot.crypto_in > ZERO:
+        return lot.fiat_in_with_fee / lot.crypto_in
+    return lot.spot_price
 
 
 class AbstractAccountingMethodIterator:

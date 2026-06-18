@@ -15,14 +15,17 @@
 from rp2.abstract_accounting_method import (
     AbstractFeatureBasedAccountingMethod,
     AcquiredLotSortKey,
+    fee_inclusive_unit_cost_basis,
 )
 from rp2.in_transaction import InTransaction
 
 
 # HIFO (Highest In, First Out) plugin. See https://www.investopedia.com/terms/h/hifo.asp.
+# Lots are ranked by fee-inclusive per-unit cost basis (highest first), not by fee-exclusive spot_price: per
+# IRS guidance cost basis includes acquisition fees. See issue #11 / upstream eprbell/rp2#150.
 class AccountingMethod(AbstractFeatureBasedAccountingMethod):
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
-        return AcquiredLotSortKey(-lot.spot_price, lot.timestamp.timestamp(), lot.row)
+        return AcquiredLotSortKey(-fee_inclusive_unit_cost_basis(lot), lot.timestamp.timestamp(), lot.row)
 
     def taxable_event_sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
-        return AcquiredLotSortKey(-lot.spot_price, lot.cost_basis_timestamp.timestamp(), lot.row)
+        return AcquiredLotSortKey(-fee_inclusive_unit_cost_basis(lot), lot.cost_basis_timestamp.timestamp(), lot.row)
