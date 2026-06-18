@@ -291,6 +291,25 @@ class ComputedData:  # pylint: disable=too-many-public-methods
                 self.__in_lot_sold_percentage.setdefault(gain_loss.acquired_lot, ZERO) + gain_loss.acquired_lot_fraction_percentage
             )
 
+        # Open-position cost basis (consumed by the open_positions report) must reflect the holdings as of
+        # to_date and be INDEPENDENT of from_date: the open position at to_date is the same regardless of when
+        # the reporting window starts. Unlike the filtered sets above (which power period reports such as
+        # rp2_full_report and therefore must stay from_date-scoped), these are bounded by to_date only. When
+        # from_date == MIN_DATE and to_date == MAX_DATE they are identical to the filtered versions, so reports
+        # that do not pass a from_date are byte-for-byte unchanged.
+        # See https://github.com/bitcoinaustria/rp2/issues/8 (mirrors upstream eprbell/rp2#105).
+        self.__open_position_in_transaction_set: TransactionSet = input_data.unfiltered_in_transaction_set.duplicate(from_date=MIN_DATE, to_date=to_date)
+        self.__open_position_in_lot_sold_percentage: Dict[InTransaction, RP2Decimal] = {}
+        for entry in unfiltered_gain_loss_set:
+            gain_loss = cast(GainLoss, entry)
+            if not gain_loss.acquired_lot:
+                continue
+            if gain_loss.acquired_lot.timestamp.date() > to_date or gain_loss.taxable_event.timestamp.date() > to_date:
+                continue
+            self.__open_position_in_lot_sold_percentage[gain_loss.acquired_lot] = (
+                self.__open_position_in_lot_sold_percentage.setdefault(gain_loss.acquired_lot, ZERO) + gain_loss.acquired_lot_fraction_percentage
+            )
+
         if self.__filtered_taxable_event_set.asset != self.__asset:
             raise RP2ValueError(f"Asset mismatch in 'taxable_event_set': expected {self.__asset}, found {self.__filtered_taxable_event_set.asset}")
         if self.__filtered_gain_loss_set.asset != self.__asset:
@@ -380,6 +399,16 @@ class ComputedData:  # pylint: disable=too-many-public-methods
         """Percentage sold for a given InTransaction instance"""
         InTransaction.type_check("in_transaction", in_transaction)
         return self.__in_lot_sold_percentage[in_transaction] if in_transaction in self.__in_lot_sold_percentage else ZERO
+
+    @property
+    def open_position_in_transaction_set(self) -> TransactionSet:
+        """In-transactions for open-position reporting: bounded by to_date only (independent of from_date)."""
+        return self.__open_position_in_transaction_set
+
+    def get_open_position_in_lot_sold_percentage(self, in_transaction: InTransaction) -> RP2Decimal:
+        """Percentage of an in-lot sold by to_date, independent of from_date (for open-position reporting)."""
+        InTransaction.type_check("in_transaction", in_transaction)
+        return self.__open_position_in_lot_sold_percentage.get(in_transaction, ZERO)
 
     def has_in_transaction_actual_amounts(self) -> bool:
         """True if transfer analysis populated per-wallet actual lot amounts."""
