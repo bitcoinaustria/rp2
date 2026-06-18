@@ -73,6 +73,10 @@ class OutTransaction(AbstractTransaction):
 
         # Fiat out without fee and fiat fee are optional. They can be derived from crypto out (no fee), spot price and crypto fee,
         # however some exchanges provide them anyway. If they are provided use them as given by the exchange, if not compute them.
+        # Track whether fiat_out_no_fee was supplied by the caller (vs. derived from spot_price). This lets a
+        # LOST disposal report zero proceeds by default while still honoring an explicitly-provided value
+        # (e.g. a partial bankruptcy recovery). See fiat_taxable_amount below and issue #10.
+        self.__fiat_out_no_fee_is_explicit: bool = fiat_out_no_fee is not None
         if fiat_out_no_fee is None:
             self.__fiat_out_no_fee = self.__crypto_out_no_fee * self.spot_price
         else:
@@ -200,6 +204,13 @@ class OutTransaction(AbstractTransaction):
     def fiat_taxable_amount(self) -> RP2Decimal:
         if self.transaction_type == TransactionType.FEE:
             return self.fiat_fee
+        # A LOST disposal (lost/stolen coins, exchange bankruptcy) yields no proceeds: nothing is received in
+        # exchange, so the result is a full capital loss (0 - cost basis). Because spot_price == 0 is rejected,
+        # a LOST row must carry a dummy spot_price, which would otherwise produce spurious positive proceeds.
+        # If the caller explicitly provides fiat_out_no_fee (e.g. a partial recovery), that value is honored.
+        # See https://github.com/bitcoinaustria/rp2/issues/10 (mirrors upstream eprbell/rp2#139).
+        if self.transaction_type == TransactionType.LOST and not self.__fiat_out_no_fee_is_explicit:
+            return ZERO
         return self.fiat_out_no_fee
 
     @property
