@@ -290,6 +290,15 @@ class TestInputParser(unittest.TestCase):
             count += 1
         self.assertEqual(count, 4)
 
+    def test_transaction_error_includes_asset_and_row(self) -> None:
+        # Errors raised while building a transaction from a data row must be prefixed with the asset and the
+        # spreadsheet row number, so a bad cell is easy to locate. The original exception type is preserved.
+        # See https://github.com/bitcoinaustria/rp2/issues/12 (mirrors upstream eprbell/rp2#101 / #142).
+        # Sheet "B28" has a non-positive crypto_in on a data row.
+        with self.assertRaisesRegex(RP2ValueError, r"^B28\(\d+\): Parameter 'crypto_in' has non-positive value"):
+            input_file_handle: object = open_ods(configuration=self._bad_input_configuration, input_file_path="./input/test_bad_data.ods")
+            parse_ods(self._bad_input_configuration, "B28", input_file_handle)
+
     def test_bad_input(self) -> None:
         sheets_to_expected_messages: Dict[str, ErrorAndMessage] = {
             "B1": ErrorAndMessage(RP2ValueError, "IN table not found"),
