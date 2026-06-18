@@ -52,6 +52,24 @@ class TestConfiguration(unittest.TestCase):
 
         return result
 
+    def test_missing_required_header_column(self) -> None:
+        # Removing a required column from a header section must raise a clear RP2ValueError naming the
+        # missing column, rather than the bare Python TypeError that used to surface at transaction
+        # construction time (e.g. "InTransaction.__init__() missing 1 required positional argument: 'asset'").
+        # See https://github.com/bitcoinaustria/rp2/issues/13 (mirrors upstream eprbell/rp2#125).
+        required_by_section = {
+            Keyword.IN_HEADER.value: Keyword.ASSET.value,
+            Keyword.OUT_HEADER.value: Keyword.CRYPTO_FEE.value,
+            Keyword.INTRA_HEADER.value: Keyword.CRYPTO_RECEIVED.value,
+        }
+        for section_name, column in required_by_section.items():
+            config = ConfigParser()
+            config.read("./config/test_data.ini")
+            self.assertIn(column, config[section_name])
+            del config[section_name][column]
+            with self.assertRaisesRegex(RP2ValueError, rf"section '{section_name}' is missing required column\(s\): .*{column}"):
+                self._test_config(config)
+
     def test_config_file(self) -> None:
         config = ConfigParser()
         with self.assertRaisesRegex(RP2ValueError, f" no 'assets' field defined in {Keyword.GENERAL.value} section"):

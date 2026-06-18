@@ -116,6 +116,46 @@ _HEADER_COLUMNS: Dict[str, Set[str]] = {
     },
 }
 
+# Columns that must be present in each header section: these mirror the parameters without a default
+# value in the corresponding transaction constructor (InTransaction / OutTransaction / IntraTransaction).
+# Omitting any of them would otherwise surface as a bare Python TypeError when the row is turned into a
+# transaction (e.g. "InTransaction.__init__() missing 1 required positional argument: 'asset'"). Validating
+# their presence here turns that into a clear, actionable configuration error. By construction this cannot
+# reject a previously-valid configuration: any config that parsed before already provided every one of
+# these columns (otherwise it would have raised the TypeError at transaction-construction time).
+_REQUIRED_HEADER_COLUMNS: Dict[str, Set[str]] = {
+    Keyword.IN_HEADER.value: {
+        Keyword.TIMESTAMP.value,
+        Keyword.ASSET.value,
+        Keyword.EXCHANGE.value,
+        Keyword.HOLDER.value,
+        Keyword.TRANSACTION_TYPE.value,
+        Keyword.SPOT_PRICE.value,
+        Keyword.CRYPTO_IN.value,
+    },
+    Keyword.OUT_HEADER.value: {
+        Keyword.TIMESTAMP.value,
+        Keyword.ASSET.value,
+        Keyword.EXCHANGE.value,
+        Keyword.HOLDER.value,
+        Keyword.TRANSACTION_TYPE.value,
+        Keyword.SPOT_PRICE.value,
+        Keyword.CRYPTO_OUT_NO_FEE.value,
+        Keyword.CRYPTO_FEE.value,
+    },
+    Keyword.INTRA_HEADER.value: {
+        Keyword.TIMESTAMP.value,
+        Keyword.ASSET.value,
+        Keyword.FROM_EXCHANGE.value,
+        Keyword.FROM_HOLDER.value,
+        Keyword.TO_EXCHANGE.value,
+        Keyword.TO_HOLDER.value,
+        Keyword.SPOT_PRICE.value,
+        Keyword.CRYPTO_SENT.value,
+        Keyword.CRYPTO_RECEIVED.value,
+    },
+}
+
 
 class Configuration:  # pylint: disable=too-many-public-methods
     @classmethod
@@ -285,6 +325,11 @@ class Configuration:  # pylint: disable=too-many-public-methods
                 raise RP2ValueError(
                     f"{configuration_path}: invalid value type for field '{header}' in section '{section.name}' (integer was expected): {column}"
                 ) from exc
+        missing_columns: Set[str] = _REQUIRED_HEADER_COLUMNS.get(normalized_section_name, set()) - set(header_2_column.keys())
+        if missing_columns:
+            raise RP2ValueError(
+                f"{configuration_path}: section '{section.name}' is missing required column(s): {', '.join(sorted(missing_columns))}"
+            )
         return header_2_column
 
     def _validate_accounting_method_section(self, section: SectionProxy, configuration_path: str) -> Dict[int, str]:
