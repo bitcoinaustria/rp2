@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import shutil
 import unittest
 from pathlib import Path
 
 from abstract_test_ods_output_diff import AbstractTestODSOutputDiff, OutputPlugins
 
-ROOT_PATH: Path = Path(os.path.dirname(__file__)).parent.absolute()
+_JP_DISABLED_SKIP_REASON: str = "JP CLI is disabled until a Japan-specific accounting method replaces the old FIFO placeholder"
 
 
 class TestODSOutputDiff(AbstractTestODSOutputDiff):  # pylint: disable=too-many-public-methods
@@ -27,38 +25,7 @@ class TestODSOutputDiff(AbstractTestODSOutputDiff):  # pylint: disable=too-many-
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.output_dir = ROOT_PATH / Path("output") / Path(cls.__module__)
-
-        shutil.rmtree(cls.output_dir, ignore_errors=True)
-
-        AbstractTestODSOutputDiff._generate(
-            cls.output_dir,
-            test_name="crypto_example",
-            config="crypto_example",
-            method="fifo",
-            country="jp",
-            generation_language="en",
-            allow_negative_balances=True,
-        )
-        AbstractTestODSOutputDiff._generate(
-            cls.output_dir, test_name="test_data", config="test_data", method="fifo", country="jp", generation_language="en", allow_negative_balances=True
-        )
-        AbstractTestODSOutputDiff._generate(
-            cls.output_dir, test_name="test_data2", config="test_data", method="fifo", country="jp", generation_language="en", allow_negative_balances=True
-        )
-        AbstractTestODSOutputDiff._generate(
-            cls.output_dir, test_name="test_data3", config="test_data", method="fifo", country="jp", generation_language="en", allow_negative_balances=True
-        )
-        AbstractTestODSOutputDiff._generate(cls.output_dir, test_name="test_data4", config="test_data4", method="fifo", country="jp", generation_language="en")
-        AbstractTestODSOutputDiff._generate(
-            cls.output_dir,
-            test_name="test_many_year_data",
-            config="test_data",
-            method="fifo",
-            country="jp",
-            generation_language="en",
-            allow_negative_balances=True,
-        )
+        raise unittest.SkipTest(_JP_DISABLED_SKIP_REASON)
 
     def setUp(self) -> None:
         self.maxDiff = None  # pylint: disable=invalid-name

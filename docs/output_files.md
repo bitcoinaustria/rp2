@@ -94,7 +94,7 @@ And an example of the Interest sheet:
 This is a Ireland-specific tax-advisor-friendly report that can be understood by tax professionals (not necessarily specializing in crypto). It follows the same format as the [US variant](#tax-report-us-advisor-friendly-report).
 
 ### Tax Report JP: NTA-friendly Report
-This is a Japan-specific report: tax_report_jp.ods output file contains a legend sheet, a summary sheet for every year, and a calculation sheet per asset and year.
+This Japan-specific report generator is retained in the source tree, but `rp2_jp` is disabled until a Japan-specific accounting method replaces the old FIFO placeholder. When support is completed, tax_report_jp.ods output will contain a legend sheet, a summary sheet for every year, and a calculation sheet per asset and year.
 
 The NTA (National Tax Agency) provides an excel spreadsheet for calculating the total average of each crypto asset per year. This report generates a similar report and can be optionally submitted with an individual's taxes or provided to the NTA if requested.
 

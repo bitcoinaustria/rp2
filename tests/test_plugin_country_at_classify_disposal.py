@@ -34,6 +34,7 @@ from rp2.out_transaction import OutTransaction
 from rp2.plugin.accounting_method.moving_average_at import AccountingMethod
 from rp2.plugin.country.at import AT, AtDisposalCategory, classify_disposal
 from rp2.rp2_decimal import RP2Decimal
+from rp2.rp2_error import RP2ValueError
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
 
@@ -171,6 +172,13 @@ class TestClassifyDisposal(unittest.TestCase):
         self.assertNotIn(AtDisposalCategory.NEU_LOSS, buckets)
         # Zero-gain by construction.
         self.assertEqual(buckets[AtDisposalCategory.NEU_SWAP][0].fiat_gain, _rp2_decimal("0"))
+
+    def test_neuvermoegen_empty_swap_marker_raises(self) -> None:
+        lot = self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="1", spot_price="100")
+        disposal = self._sell(row=2, timestamp="2023-03-01 00:00:00 +0000", crypto_out="0.5", spot_price="500", notes="at_swap_link=")
+        gain_loss = GainLoss(self._configuration, _rp2_decimal("0.5"), disposal, lot)
+        with self.assertRaisesRegex(RP2ValueError, "Empty `at_swap_link=` marker"):
+            classify_disposal(gain_loss)
 
     def test_altvermoegen_within_spekulationsfrist_routes_to_alt_spekulation(self) -> None:
         # Buy 2020-06-01 (alt); sell 2020-12-01 → holding < 365 days.
