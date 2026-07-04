@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from rp2.abstract_entry import AbstractEntry
@@ -64,13 +64,7 @@ class InTransaction(AbstractTransaction):
 
         self.__exchange: str = configuration.type_check_exchange("exchange", exchange)
         self.__holder: str = configuration.type_check_holder("holder", holder)
-        self.__crypto_in: RP2Decimal
-        if self.transaction_type == TransactionType.STAKING:
-            # Staking income can be negative: in certain cases the protocol can remove from the stash rather than
-            # add to it (e.g. if the node stays offline too long).
-            self.__crypto_in = configuration.type_check_decimal("crypto_in", crypto_in)
-        else:
-            self.__crypto_in = configuration.type_check_positive_decimal("crypto_in", crypto_in, non_zero=True)
+        self.__crypto_in: RP2Decimal = configuration.type_check_positive_decimal("crypto_in", crypto_in, non_zero=True)
         self.__crypto_fee: RP2Decimal = configuration.type_check_positive_decimal("crypto_fee", crypto_fee) if crypto_fee else ZERO
         self.__fiat_fee: RP2Decimal = configuration.type_check_positive_decimal("fiat_fee", fiat_fee) if fiat_fee else ZERO
 

@@ -659,6 +659,38 @@ class TestInTransaction(unittest.TestCase):
                 fiat_in_with_fee=RP2Decimal("2020.2"),
                 row=19,
             )
+        with self.assertRaisesRegex(RP2ValueError, "Parameter 'crypto_in' has zero value"):
+            # Staking losses are represented as OUT STAKING transactions: IN crypto_in must stay positive.
+            InTransaction(
+                self._configuration,
+                "2021-01-02T08:42:43.882Z",
+                "B1",
+                "BlockFi",
+                "Bob",
+                "STAKING",
+                RP2Decimal("1000"),
+                RP2Decimal("0"),
+                fiat_fee=RP2Decimal("20"),
+                fiat_in_no_fee=RP2Decimal("2000.2"),
+                fiat_in_with_fee=RP2Decimal("2020.2"),
+                row=19,
+            )
+        with self.assertRaisesRegex(RP2ValueError, "Parameter 'crypto_in' has non-positive value .*"):
+            # Staking losses are represented as OUT STAKING transactions: IN crypto_in must stay positive.
+            InTransaction(
+                self._configuration,
+                "2021-01-02T08:42:43.882Z",
+                "B1",
+                "BlockFi",
+                "Bob",
+                "STAKING",
+                RP2Decimal("1000"),
+                RP2Decimal("-2.0002"),
+                fiat_fee=RP2Decimal("20"),
+                fiat_in_no_fee=RP2Decimal("2000.2"),
+                fiat_in_with_fee=RP2Decimal("2020.2"),
+                row=19,
+            )
         with self.assertRaisesRegex(RP2TypeError, "Parameter 'crypto_in' has non-RP2Decimal value .*"):
             # Bad crypto in
             InTransaction(

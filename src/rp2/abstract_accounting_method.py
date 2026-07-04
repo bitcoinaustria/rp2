@@ -56,12 +56,9 @@ class AcquiredLotSortKey(NamedTuple):
 def fee_inclusive_unit_cost_basis(lot: InTransaction) -> RP2Decimal:
     # Per-unit acquisition cost INCLUDING fees (IRS Publication 551 / virtual-currency FAQ Q8): this is the
     # basis cost-ordered accounting methods (HIFO/LOFO) should rank lots on, rather than the fee-exclusive
-    # spot_price. Earn-type lots (e.g. STAKING/INTEREST income) may carry crypto_in <= 0, for which a
-    # fee-inclusive per-unit basis is undefined (and would divide by zero), so we fall back to spot_price for
-    # ordering purposes only. See https://github.com/bitcoinaustria/rp2/issues/11 (mirrors upstream eprbell/rp2#150).
-    if lot.crypto_in > ZERO:
-        return lot.fiat_in_with_fee / lot.crypto_in
-    return lot.spot_price
+    # spot_price. InTransaction validates crypto_in as non-zero positive, so this division is defined.
+    # See https://github.com/bitcoinaustria/rp2/issues/11 (mirrors upstream eprbell/rp2#150).
+    return lot.fiat_in_with_fee / lot.crypto_in
 
 
 class AbstractAccountingMethodIterator:
