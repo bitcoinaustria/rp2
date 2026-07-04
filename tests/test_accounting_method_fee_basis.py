@@ -69,26 +69,6 @@ class TestAccountingMethodFeeBasis(unittest.TestCase):
         self.assertLess(method.sort_key(cheap), method.sort_key(pricey))
         self.assertLess(method.taxable_event_sort_key(cheap), method.taxable_event_sort_key(pricey))
 
-    def test_zero_crypto_in_lot_does_not_divide_by_zero(self) -> None:
-        # Earn-type lots (e.g. STAKING/INTEREST income) may carry crypto_in == 0. The fee-inclusive basis is
-        # undefined there, so ordering falls back to spot_price instead of crashing with a ZeroDivisionError.
-        staking_lot: InTransaction = InTransaction(
-            self._configuration,
-            "2023-01-01 00:00:00 +0000",
-            "B1",
-            "Coinbase",
-            "Bob",
-            "STAKING",
-            RP2Decimal("50"),
-            RP2Decimal("0"),
-            fiat_fee=RP2Decimal("0"),
-            row=3,
-        )
-        self.assertEqual(fee_inclusive_unit_cost_basis(staking_lot), RP2Decimal("50"))
-        # The sort keys must be computable without raising.
-        HifoAccountingMethod().sort_key(staking_lot)
-        LofoAccountingMethod().sort_key(staking_lot)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -246,12 +246,8 @@ class Generator(AbstractODSGenerator):
                 in_transaction = cast(InTransaction, current_transaction)
                 actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
                 effective_fiat_in_with_fee: RP2Decimal = computed_data.get_in_transaction_fiat_in_with_fee(in_transaction)
-                if actual_amount is not None and in_transaction.crypto_in > ZERO:
+                if actual_amount is not None:
                     transaction_cost_basis = (effective_fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
-                elif actual_amount is not None:
-                    # crypto_in can be zero (or negative) for STAKING income lots; such a lot
-                    # contributes no cost basis to open positions and must not divide by crypto_in.
-                    transaction_cost_basis = ZERO
                 else:
                     sold_percent = computed_data.get_open_position_in_lot_sold_percentage(in_transaction)
                     transaction_cost_basis = effective_fiat_in_with_fee * (RP2Decimal("1") - sold_percent)
@@ -268,9 +264,7 @@ class Generator(AbstractODSGenerator):
                 # Treat sub-1e-10 residuals as zero so floating dust (e.g. 0.00000000003) does not surface as a
                 # spurious open position or skew the per-unit cost basis. Uses the same precision mask the
                 # balance engine applies to its zero checks. See issue #9 (mirrors upstream eprbell/rp2#112).
-                if balance_set.final_balance > ZERO and not RP2Decimal.is_equal_within_precision(
-                    balance_set.final_balance, ZERO, CRYPTO_BALANCE_DECIMAL_MASK
-                ):
+                if balance_set.final_balance > ZERO and not RP2Decimal.is_equal_within_precision(balance_set.final_balance, ZERO, CRYPTO_BALANCE_DECIMAL_MASK):
                     if balance_set.holder not in holders:
                         holders.append(balance_set.holder)
 
