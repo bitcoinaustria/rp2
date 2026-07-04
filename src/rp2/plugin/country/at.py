@@ -349,7 +349,7 @@ def classify_disposal(gain_loss: GainLoss) -> AtDisposalCategory:
         return AtDisposalCategory.INCOME_GENERAL
     regime: str = classify_lot_regime(gain_loss.acquired_lot)
     if regime == REGIME_NEU:
-        if has_swap_link(gain_loss.taxable_event):
+        if _validated_swap_link_id(gain_loss.taxable_event) is not None:
             return AtDisposalCategory.NEU_SWAP
         return AtDisposalCategory.NEU_GAIN if gain_loss.fiat_gain >= ZERO else AtDisposalCategory.NEU_LOSS
     if _within_spekulationsfrist(gain_loss.acquired_lot.cost_basis_timestamp, gain_loss.taxable_event.timestamp):

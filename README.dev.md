@@ -379,7 +379,7 @@ As an example see the [us.py](src/rp2/plugin/country/us.py) file.
 Finally add a console script to [setup.cfg](setup.cfg) pointing the new country rp2_entry (see the US example in the console_scripts section of setup.cfg).
 
 ## Localization
-RP2 supports generation of tax reports in any language via the Babel Python package. For example the JP country plugin accepts the rp2_full_report and the open_positions report generators. The user can use the `-g` command line option to generate Japanese taxes in English, Japanese, or any language for which there are translations (the argument to `-g` is a [ISO 639-1](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes) format, 2-letter string). Translatable strings are enclosed in the code with `_(...)` (see examples in the [rp2_full_report](src/rp2/plugin/report/rp2_full_report.py) plugin).
+RP2 supports generation of tax reports in any language via the Babel Python package. Localization-aware generators can use the `-g` command line option to select any language for which there are translations (the argument to `-g` is a [ISO 639-1](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes) format, 2-letter string). Translatable strings are enclosed in the code with `_(...)` (see examples in the [rp2_full_report](src/rp2/plugin/report/rp2_full_report.py) plugin).
 
 Localizable strings and their translations are kept in the `src/rp2/locales` directory and here's how to manage them, when strings change in the code:
 * generate the main message catalog (locales/messages.pot):

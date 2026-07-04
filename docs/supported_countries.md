@@ -21,7 +21,7 @@
   * [Austria](#austria)
   * [Generic](#generic)
   * [Ireland](#ireland)
-  * [Japan](#japan)
+  * [Japan](#japan-disabled)
   * [Spain](#Spain)
   * [USA](#usa)
 
@@ -81,15 +81,8 @@ RP2 support for Ireland includes the following features:
   * [tax_report_ie](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-ie-advisor-friendly-report): tax report meant to be read by tax preparers;
   * [open_positions](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#open-positions-report-unrealized-gains): report on assets with non-zero crypto balance (valid for any country): unrealized gains / losses, portfolio weighting, and more.
 
-### Japan
-RP2 support for Japan includes the following features:
-* Japan-specific RP2 executable: `rp2_jp`.
-* Accounting methods:
-  * Total Average Method.
-* [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
-  * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
-  * [tax_report_jp](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-jp-advisor-friendly-report): Japan-specific tax report meant to be read by tax preparers;
-  * [open_positions](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#open-positions-report-unrealized-gains): report on assets with non-zero crypto balance (valid for any country): unrealized gains / losses, portfolio weighting, and more.
+### Japan Disabled
+Japan support is currently disabled. The JP report generator and golden files remain in the tree, but the country plugin does not expose accounting methods or report generators until a Japan-specific accounting method replaces the old FIFO placeholder. The `rp2_jp` entry point exits with an unsupported-country message instead of silently computing Japanese results with FIFO.
 
 ### Spain
 RP2 support for Spain includes the following features:

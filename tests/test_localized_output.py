@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import shutil
 import unittest
 from pathlib import Path
 
 from abstract_test_ods_output_diff import AbstractTestODSOutputDiff, OutputPlugins
 
-ROOT_PATH: Path = Path(os.path.dirname(__file__)).parent.absolute()
+_JP_DISABLED_SKIP_REASON: str = "JP CLI is disabled until a Japan-specific accounting method replaces the old FIFO placeholder"
 
 
 class TestLocalizedOutput(AbstractTestODSOutputDiff):  # pylint: disable=too-many-public-methods
@@ -27,22 +25,7 @@ class TestLocalizedOutput(AbstractTestODSOutputDiff):  # pylint: disable=too-man
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.output_dir = ROOT_PATH / Path("output") / Path(cls.__module__)
-
-        shutil.rmtree(cls.output_dir, ignore_errors=True)
-
-        # To test localization plumbing, we generate Japanese taxes for test_data in Kalaallisut language. Note that the localization
-        # file (locales/kl/LC_MESSAGES/messages.po) doesn't contain real Kalaallisut translations, but only placeholder strings starting
-        # with "__test_": this is good enough to test localization plumbing (and it would work in the same way with a real translation).
-        cls._generate(
-            cls.output_dir,
-            test_name="test_data",
-            config="test_data",
-            method="fifo",
-            generation_language="kl",
-            country="jp",
-            allow_negative_balances=True,
-        )
+        raise unittest.SkipTest(_JP_DISABLED_SKIP_REASON)
 
     def setUp(self) -> None:
         self.maxDiff = None  # pylint: disable=invalid-name

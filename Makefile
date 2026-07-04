@@ -48,7 +48,7 @@ reformat: $(VENV)/bin/activate
 
 archive: clean
 	rm -f rp2.zip || true
-	zip -r rp2.zip .
+	git archive --format=zip --output=rp2.zip HEAD
 
 distribution: all
 	$(VENV)/bin/pip3 install twine
