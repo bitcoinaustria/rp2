@@ -19,6 +19,7 @@ from decimal import Decimal, FloatOperation, getcontext
 from rp2.rp2_error import RP2TypeError
 
 CRYPTO_DECIMALS: int = 13
+CRYPTO_INTEGER_DIGITS: int = 19
 CRYPTO_DECIMAL_MASK: Decimal = Decimal("1." + "0" * int(CRYPTO_DECIMALS))
 
 FIAT_DECIMALS: int = 2
@@ -28,7 +29,7 @@ FIAT_DECIMAL_MASK: Decimal = Decimal("1." + "0" * int(FIAT_DECIMALS))
 class RP2Decimal(Decimal):
     # RP2Decimal initialization code. In Python there is no static constructor: the closest alternative is to add static initialization code
     # directly inside the class. Use arbitrarily high precision (quintillion + CRYPTO_DECIMALS digits)
-    getcontext().prec = CRYPTO_DECIMALS + 18
+    getcontext().prec = CRYPTO_DECIMALS + CRYPTO_INTEGER_DIGITS
     getcontext().traps[FloatOperation] = True
 
     @classmethod

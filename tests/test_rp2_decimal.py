@@ -97,6 +97,17 @@ class TestRP2Decimal(unittest.TestCase):
         self.assertTrue(nine % two + decimal3 - decimal1 == one)
         self.assertTrue(nine % two + decimal4 - decimal1 > one)
 
+    def test_rp2_decimal_quintillion_boundary(self) -> None:
+        one_quintillion: RP2Decimal = RP2Decimal("1000000000000000000")
+        smallest_crypto_unit: RP2Decimal = RP2Decimal("0.0000000000001")
+        sub_crypto_unit: RP2Decimal = RP2Decimal("0.00000000000001")
+
+        self.assertFalse(one_quintillion + smallest_crypto_unit == one_quintillion)
+        self.assertTrue(one_quintillion + smallest_crypto_unit > one_quintillion)
+
+        self.assertTrue(one_quintillion + sub_crypto_unit == one_quintillion)
+        self.assertFalse(one_quintillion + sub_crypto_unit > one_quintillion)
+
     def test_bad_rp2_decimal(self) -> None:
         # pylint: disable=pointless-statement
         one: RP2Decimal = RP2Decimal("1")
