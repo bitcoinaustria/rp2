@@ -19,7 +19,7 @@ from rp2.abstract_entry import AbstractEntry
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.configuration import Configuration
 from rp2.in_transaction import InTransaction
-from rp2.rp2_decimal import ZERO, RP2Decimal
+from rp2.rp2_decimal import CRYPTO_DECIMAL_MASK, ZERO, RP2Decimal
 from rp2.rp2_error import RP2RuntimeError, RP2TypeError, RP2ValueError
 
 
@@ -90,7 +90,11 @@ class GainLoss(AbstractEntry):
         other_acquired_lot_internal_id: Optional[str] = other.acquired_lot.internal_id if other.acquired_lot else None
         # By definition, internal_id can uniquely identify a transaction: this works even if it's the ODS line from the spreadsheet,
         # since there are no cross-asset transactions (so a spreadsheet line points to a unique transaction for that asset).
-        result: bool = self.taxable_event.internal_id == other.taxable_event.internal_id and self_acquired_lot_internal_id == other_acquired_lot_internal_id
+        result: bool = (
+            self.taxable_event.internal_id == other.taxable_event.internal_id
+            and self_acquired_lot_internal_id == other_acquired_lot_internal_id
+            and self.__unit_cost_basis_override_identity == self.__get_unit_cost_basis_override_identity(other.unit_cost_basis_override)
+        )
         return result
 
     def __ne__(self, other: object) -> bool:
@@ -99,7 +103,7 @@ class GainLoss(AbstractEntry):
     def __hash__(self) -> int:
         # By definition, internal_id can uniquely identify a transaction: this works even if it's the ODS line from the spreadsheet,
         # since there are no cross-asset transactions (so a spreadsheet line points to a unique transaction for that asset).
-        return hash((self.taxable_event.internal_id, self.acquired_lot.internal_id if self.acquired_lot else None))
+        return hash((self.taxable_event.internal_id, self.acquired_lot.internal_id if self.acquired_lot else None, self.__unit_cost_basis_override_identity))
 
     def to_string(self, indent: int = 0, repr_format: bool = True, extra_data: Optional[List[str]] = None) -> str:
         self.configuration.type_check_positive_int("indent", indent)
@@ -133,7 +137,11 @@ class GainLoss(AbstractEntry):
         if not self.acquired_lot:
             # earn-typed taxable event doesn't have acquired lot
             return f"{self.taxable_event.internal_id}->None"
-        return f"{self.taxable_event.internal_id}->{self.acquired_lot.internal_id}"
+        internal_id = f"{self.taxable_event.internal_id}->{self.acquired_lot.internal_id}"
+        unit_cost_basis_override_identity = self.__unit_cost_basis_override_identity
+        if unit_cost_basis_override_identity is None:
+            return internal_id
+        return f"{internal_id}@unit_cost_basis_override={unit_cost_basis_override_identity}"
 
     @property
     def timestamp(self) -> datetime:
@@ -150,6 +158,20 @@ class GainLoss(AbstractEntry):
     @property
     def crypto_amount(self) -> RP2Decimal:
         return self.__crypto_amount
+
+    @property
+    def unit_cost_basis_override(self) -> Optional[RP2Decimal]:
+        return self.__unit_cost_basis_override
+
+    @property
+    def __unit_cost_basis_override_identity(self) -> Optional[str]:
+        return self.__get_unit_cost_basis_override_identity(self.unit_cost_basis_override)
+
+    @staticmethod
+    def __get_unit_cost_basis_override_identity(unit_cost_basis_override: Optional[RP2Decimal]) -> Optional[str]:
+        if unit_cost_basis_override is None:
+            return None
+        return str(unit_cost_basis_override.quantize(CRYPTO_DECIMAL_MASK))
 
     @property
     def crypto_balance_change(self) -> RP2Decimal:

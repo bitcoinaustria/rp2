@@ -15,8 +15,11 @@
 import os
 import tempfile
 import unittest
+import zipfile
 from datetime import date
-from typing import cast
+from pathlib import Path
+from typing import List, Optional, cast
+from xml.etree import ElementTree
 
 from prezzemolo.avl_tree import AVLTree
 
@@ -35,6 +38,13 @@ from rp2.plugin.report.open_positions import Generator
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
+
+_ODS_TABLE: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}table"
+_ODS_TABLE_CELL: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}table-cell"
+_ODS_TABLE_FORMULA: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}formula"
+_ODS_TABLE_NAME: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}name"
+_ODS_TABLE_ROW: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}table-row"
+_ODS_NUMBER_COLUMNS_REPEATED: str = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}number-columns-repeated"
 
 
 class TestOpenPositions(unittest.TestCase):
@@ -108,9 +118,7 @@ class TestOpenPositions(unittest.TestCase):
         config: Configuration = Configuration("./config/test_data.ini", US())
         asset: str = "B1"
         in_set: TransactionSet = TransactionSet(config, "IN", asset, MIN_DATE, MAX_DATE)
-        in_set.add_entry(
-            InTransaction(config, "2020-01-01 00:00:00 +0000", asset, "Coinbase", "Bob", "BUY", RP2Decimal("100"), RP2Decimal("1.0"), row=1)
-        )
+        in_set.add_entry(InTransaction(config, "2020-01-01 00:00:00 +0000", asset, "Coinbase", "Bob", "BUY", RP2Decimal("100"), RP2Decimal("1.0"), row=1))
         out_set: TransactionSet = TransactionSet(config, "OUT", asset, MIN_DATE, MAX_DATE)
         out_set.add_entry(
             OutTransaction(
@@ -153,6 +161,51 @@ class TestOpenPositions(unittest.TestCase):
             # generate() writes the report file only at the very end, so a non-empty output dir proves it ran to
             # completion rather than bailing out early.
             self.assertTrue(os.listdir(output_dir), "open_positions report was not written")
+
+    def test_lookup_formula_is_closed(self) -> None:
+        computed_data: ComputedData = self._computed_data("B1", MIN_DATE)
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            Generator().generate(
+                country=US(),
+                years_2_accounting_method_names={MIN_DATE.year: "fifo"},
+                asset_to_computed_data={"B1": computed_data},
+                output_dir_path=output_dir,
+                output_file_prefix="test_lookup_",
+                from_date=MIN_DATE,
+                to_date=MAX_DATE,
+                generation_language="en",
+            )
+
+            output_file_path = next(Path(output_dir).glob("test_lookup_*.ods"))
+            with zipfile.ZipFile(output_file_path) as output_file:
+                root = ElementTree.fromstring(output_file.read("content.xml"))
+            asset_sheet: Optional[ElementTree.Element] = None
+            for table in root.iter(_ODS_TABLE):
+                if table.attrib.get(_ODS_TABLE_NAME) == "Asset":
+                    asset_sheet = table
+                    break
+            if asset_sheet is None:
+                self.fail("Asset sheet not found in open_positions report")
+            rows: List[ElementTree.Element] = [row for row in asset_sheet if row.tag == _ODS_TABLE_ROW]
+            cells: List[ElementTree.Element] = self._expanded_ods_cells(rows[Generator.HEADER_ROWS])
+            lookup_formula = cells[6].attrib[_ODS_TABLE_FORMULA].removeprefix("of:")
+
+            self.assertEqual(
+                lookup_formula,
+                '=IF(VLOOKUP(A4;$Input.A:B;2;0)="Enter asset value";"See Input tab";VLOOKUP(A4;$Input.A:B;2;0))',
+            )
+
+    @staticmethod
+    def _expanded_ods_cells(row: ElementTree.Element) -> List[ElementTree.Element]:
+        result: List[ElementTree.Element] = []
+        for cell in row:
+            if cell.tag != _ODS_TABLE_CELL:
+                continue
+            repeat_count: int = int(cell.attrib.get(_ODS_NUMBER_COLUMNS_REPEATED, "1"))
+            for _ in range(repeat_count):
+                result.append(cell)
+        return result
 
 
 if __name__ == "__main__":

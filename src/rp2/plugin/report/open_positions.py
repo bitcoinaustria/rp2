@@ -317,7 +317,7 @@ class Generator(AbstractODSGenerator):
             row_indexes[_INPUT] = input_row_index + 1
 
             _vlookup_formula: str = ""
-            _lookup_field: str = ""
+            _lookup_field: Any = ""
 
             # Complete the asset table.
             for holder, holder_crypto_balance in asset_crypto_balance_holder[asset].items():
@@ -326,7 +326,7 @@ class Generator(AbstractODSGenerator):
                 asset_sheet.append_rows(1)
                 asset_row_index: int = row_indexes[_ASSET]
                 _vlookup_formula = f"VLOOKUP(A{asset_row_index+1};${_('Input')}.A:B;2;0)"
-                _lookup_field = f'=IF({_vlookup_formula}="{_INPUT_VALUE_STRING}";"{_REPORT_INPUT_VALUE_STRING}";{_vlookup_formula}'
+                _lookup_field = self._formula(f'=IF({_vlookup_formula}="{_INPUT_VALUE_STRING}";"{_REPORT_INPUT_VALUE_STRING}";{_vlookup_formula})')
 
                 self._fill_cell(asset_sheet, asset_row_index, 0, asset)
                 self._fill_cell(asset_sheet, asset_row_index, 1, holder)
@@ -335,9 +335,15 @@ class Generator(AbstractODSGenerator):
                 self._fill_cell(asset_sheet, asset_row_index, 4, holder_cost_basis, data_style="fiat")
                 self._fill_cell(asset_sheet, asset_row_index, 5, holder_cost_basis / total_cost_basis, data_style="percent")
                 self._fill_cell(asset_sheet, asset_row_index, 6, _lookup_field, data_style=unit_data_style)
-                self._fill_cell(asset_sheet, asset_row_index, 7, f"=C{asset_row_index+1}*G{asset_row_index+1}", data_style="fiat")
-                self._fill_cell(asset_sheet, asset_row_index, 8, f"=H{asset_row_index+1}-E{asset_row_index+1}", data_style="fiat")
-                self._fill_cell(asset_sheet, asset_row_index, 9, f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}", data_style="percent")
+                self._fill_cell(asset_sheet, asset_row_index, 7, self._formula(f"=C{asset_row_index+1}*G{asset_row_index+1}"), data_style="fiat")
+                self._fill_cell(asset_sheet, asset_row_index, 8, self._formula(f"=H{asset_row_index+1}-E{asset_row_index+1}"), data_style="fiat")
+                self._fill_cell(
+                    asset_sheet,
+                    asset_row_index,
+                    9,
+                    self._formula(f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}"),
+                    data_style="percent",
+                )
                 row_indexes[_ASSET] = asset_row_index + 1
 
             # Generate the Asset/Exchange table which will calc vals that will feed the asset table.
@@ -348,7 +354,7 @@ class Generator(AbstractODSGenerator):
                     asset_exchange_sheet.append_rows(1)
                     asset_exchange_row_index: int = row_indexes[_ASSET_EXCHANGE]
                     _vlookup_formula = f"VLOOKUP(A{asset_exchange_row_index+1};${_('Input')}.A:B;2;0)"
-                    _lookup_field = f'=IF({_vlookup_formula}="{_INPUT_VALUE_STRING}";"{_REPORT_INPUT_VALUE_STRING}";{_vlookup_formula}'
+                    _lookup_field = self._formula(f'=IF({_vlookup_formula}="{_INPUT_VALUE_STRING}";"{_REPORT_INPUT_VALUE_STRING}";{_vlookup_formula})')
 
                     self._fill_cell(asset_exchange_sheet, asset_exchange_row_index, 0, asset)
                     self._fill_cell(asset_exchange_sheet, asset_exchange_row_index, 1, holder)
@@ -359,16 +365,24 @@ class Generator(AbstractODSGenerator):
                     self._fill_cell(asset_exchange_sheet, asset_exchange_row_index, 6, exchange_cost_basis / total_cost_basis, data_style="percent")
                     self._fill_cell(asset_exchange_sheet, asset_exchange_row_index, 7, _lookup_field, data_style=unit_data_style)
                     self._fill_cell(
-                        asset_exchange_sheet, asset_exchange_row_index, 8, f"=D{asset_exchange_row_index+1}*H{asset_exchange_row_index+1}", data_style="fiat"
+                        asset_exchange_sheet,
+                        asset_exchange_row_index,
+                        8,
+                        self._formula(f"=D{asset_exchange_row_index+1}*H{asset_exchange_row_index+1}"),
+                        data_style="fiat",
                     )
                     self._fill_cell(
-                        asset_exchange_sheet, asset_exchange_row_index, 9, f"=I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1}", data_style="fiat"
+                        asset_exchange_sheet,
+                        asset_exchange_row_index,
+                        9,
+                        self._formula(f"=I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1}"),
+                        data_style="fiat",
                     )
                     self._fill_cell(
                         asset_exchange_sheet,
                         asset_exchange_row_index,
                         10,
-                        f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}",
+                        self._formula(f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}"),
                         data_style="percent",
                     )
                     row_indexes[_ASSET_EXCHANGE] = asset_exchange_row_index + 1
@@ -380,13 +394,37 @@ class Generator(AbstractODSGenerator):
 
         asset_row_index = row_indexes[_ASSET]
         for row_idx in range(self.HEADER_ROWS, row_indexes[_ASSET]):
-            self._fill_cell(asset_sheet, row_idx, 10, f"=I{row_idx+1}/SUM(E${self.HEADER_ROWS+1}:E${asset_row_index})", data_style="percent")
-            self._fill_cell(asset_sheet, row_idx, 11, f"=H{row_idx+1}/SUM(H${self.HEADER_ROWS+1}:H${asset_row_index})", data_style="percent")
+            self._fill_cell(
+                asset_sheet,
+                row_idx,
+                10,
+                self._formula(f"=I{row_idx+1}/SUM(E${self.HEADER_ROWS+1}:E${asset_row_index})"),
+                data_style="percent",
+            )
+            self._fill_cell(
+                asset_sheet,
+                row_idx,
+                11,
+                self._formula(f"=H{row_idx+1}/SUM(H${self.HEADER_ROWS+1}:H${asset_row_index})"),
+                data_style="percent",
+            )
 
         asset_exchange_row_index = row_indexes[_ASSET_EXCHANGE]
         for row_idx in range(self.HEADER_ROWS, row_indexes[_ASSET_EXCHANGE]):
-            self._fill_cell(asset_exchange_sheet, row_idx, 11, f"=J{row_idx+1}/SUM(F${self.HEADER_ROWS+1}:F${asset_exchange_row_index})", data_style="percent")
-            self._fill_cell(asset_exchange_sheet, row_idx, 12, f"=I{row_idx+1}/SUM(I${self.HEADER_ROWS+1}:I${asset_exchange_row_index})", data_style="percent")
+            self._fill_cell(
+                asset_exchange_sheet,
+                row_idx,
+                11,
+                self._formula(f"=J{row_idx+1}/SUM(F${self.HEADER_ROWS+1}:F${asset_exchange_row_index})"),
+                data_style="percent",
+            )
+            self._fill_cell(
+                asset_exchange_sheet,
+                row_idx,
+                12,
+                self._formula(f"=I{row_idx+1}/SUM(I${self.HEADER_ROWS+1}:I${asset_exchange_row_index})"),
+                data_style="percent",
+            )
 
         # Save the last row index containing data so multiple total rows can be added.
         last_data_row_indexes = row_indexes.copy()
@@ -405,7 +443,9 @@ class Generator(AbstractODSGenerator):
                     asset_sheet,
                     asset_row_index,
                     4,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";E${self.HEADER_ROWS+1}:E${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};E${self.HEADER_ROWS+1}:E${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -415,7 +455,9 @@ class Generator(AbstractODSGenerator):
                     asset_sheet,
                     asset_row_index,
                     7,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";H${self.HEADER_ROWS+1}:H${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};H${self.HEADER_ROWS+1}:H${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -423,7 +465,9 @@ class Generator(AbstractODSGenerator):
                     asset_sheet,
                     asset_row_index,
                     8,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";I${self.HEADER_ROWS+1}:I${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};I${self.HEADER_ROWS+1}:I${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -431,7 +475,7 @@ class Generator(AbstractODSGenerator):
                     asset_sheet,
                     asset_row_index,
                     9,
-                    f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}",
+                    self._formula(f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}"),
                     visual_style="bold_border",
                     data_style="percent",
                 )
@@ -446,16 +490,37 @@ class Generator(AbstractODSGenerator):
         self._fill_cell(asset_sheet, asset_row_index, 1, "", visual_style="bold_border")
         self._fill_cell(asset_sheet, asset_row_index, 2, "", visual_style="bold_border")
         self._fill_cell(asset_sheet, asset_row_index, 3, "", visual_style="bold_border")
-        self._fill_cell(asset_sheet, asset_row_index, 4, f"=SUM(E${self.HEADER_ROWS+1}:E${last_data_index})", visual_style="bold_border", data_style="fiat")
+        self._fill_cell(
+            asset_sheet,
+            asset_row_index,
+            4,
+            self._formula(f"=SUM(E${self.HEADER_ROWS+1}:E${last_data_index})"),
+            visual_style="bold_border",
+            data_style="fiat",
+        )
         self._fill_cell(asset_sheet, asset_row_index, 5, "", visual_style="bold_border")
         self._fill_cell(asset_sheet, asset_row_index, 6, "", visual_style="bold_border")
-        self._fill_cell(asset_sheet, asset_row_index, 7, f"=SUM(H${self.HEADER_ROWS+1}:H${last_data_index})", visual_style="bold_border", data_style="fiat")
-        self._fill_cell(asset_sheet, asset_row_index, 8, f"=SUM(I${self.HEADER_ROWS+1}:I${last_data_index})", visual_style="bold_border", data_style="fiat")
+        self._fill_cell(
+            asset_sheet,
+            asset_row_index,
+            7,
+            self._formula(f"=SUM(H${self.HEADER_ROWS+1}:H${last_data_index})"),
+            visual_style="bold_border",
+            data_style="fiat",
+        )
+        self._fill_cell(
+            asset_sheet,
+            asset_row_index,
+            8,
+            self._formula(f"=SUM(I${self.HEADER_ROWS+1}:I${last_data_index})"),
+            visual_style="bold_border",
+            data_style="fiat",
+        )
         self._fill_cell(
             asset_sheet,
             asset_row_index,
             9,
-            f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}",
+            self._formula(f"=(H{asset_row_index+1}-E{asset_row_index+1})/E{asset_row_index+1}"),
             visual_style="bold_border",
             data_style="percent",
         )
@@ -478,7 +543,9 @@ class Generator(AbstractODSGenerator):
                     asset_exchange_sheet,
                     asset_exchange_row_index,
                     5,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";F${self.HEADER_ROWS+1}:F${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};F${self.HEADER_ROWS+1}:F${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -488,7 +555,9 @@ class Generator(AbstractODSGenerator):
                     asset_exchange_sheet,
                     asset_exchange_row_index,
                     8,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";I${self.HEADER_ROWS+1}:I${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};I${self.HEADER_ROWS+1}:I${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -496,7 +565,9 @@ class Generator(AbstractODSGenerator):
                     asset_exchange_sheet,
                     asset_exchange_row_index,
                     9,
-                    f'=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};"{holder}";J${self.HEADER_ROWS+1}:J${last_data_index})',
+                    self._formula(
+                        f"=SUMIF(B${self.HEADER_ROWS+1}:B${last_data_index};{self._quote_formula_string(holder)};J${self.HEADER_ROWS+1}:J${last_data_index})"
+                    ),
                     visual_style="bold_border",
                     data_style="fiat",
                 )
@@ -504,7 +575,7 @@ class Generator(AbstractODSGenerator):
                     asset_exchange_sheet,
                     asset_exchange_row_index,
                     10,
-                    f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}",
+                    self._formula(f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}"),
                     visual_style="bold_border",
                     data_style="percent",
                 )
@@ -524,7 +595,7 @@ class Generator(AbstractODSGenerator):
             asset_exchange_sheet,
             asset_exchange_row_index,
             5,
-            f"=SUM(F${self.HEADER_ROWS+1}:F${last_data_index})",
+            self._formula(f"=SUM(F${self.HEADER_ROWS+1}:F${last_data_index})"),
             visual_style="bold_border",
             data_style="fiat",
         )
@@ -534,7 +605,7 @@ class Generator(AbstractODSGenerator):
             asset_exchange_sheet,
             asset_exchange_row_index,
             8,
-            f"=SUM(I${self.HEADER_ROWS+1}:I${last_data_index})",
+            self._formula(f"=SUM(I${self.HEADER_ROWS+1}:I${last_data_index})"),
             visual_style="bold_border",
             data_style="fiat",
         )
@@ -542,7 +613,7 @@ class Generator(AbstractODSGenerator):
             asset_exchange_sheet,
             asset_exchange_row_index,
             9,
-            f"=SUM(J${self.HEADER_ROWS+1}:J${last_data_index})",
+            self._formula(f"=SUM(J${self.HEADER_ROWS+1}:J${last_data_index})"),
             visual_style="bold_border",
             data_style="fiat",
         )
@@ -550,7 +621,7 @@ class Generator(AbstractODSGenerator):
             asset_exchange_sheet,
             asset_exchange_row_index,
             10,
-            f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}",
+            self._formula(f"=(I{asset_exchange_row_index+1}-F{asset_exchange_row_index+1})/F{asset_exchange_row_index+1}"),
             visual_style="bold_border",
             data_style="percent",
         )

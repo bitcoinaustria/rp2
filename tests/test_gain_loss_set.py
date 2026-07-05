@@ -292,6 +292,22 @@ class TestGainLossSet(unittest.TestCase):
         for asset in _ASSETS:
             self.assertEqual(str(self._gain_loss_set[asset]), RP2_TEST_OUTPUT[asset])
 
+    def test_cost_basis_override_distinguishes_same_event_and_lot_entries(self) -> None:
+        asset = "B4"
+        gain_loss_set: GainLossSet = GainLossSet(self._configuration, asset)
+        gain_loss_set.add_entry(
+            GainLoss(self._configuration, RP2Decimal("0.1"), self._out15[asset], self._in3[asset], unit_cost_basis_override=RP2Decimal("10"))
+        )
+        gain_loss_set.add_entry(
+            GainLoss(self._configuration, RP2Decimal("0.1"), self._out15[asset], self._in3[asset], unit_cost_basis_override=RP2Decimal("11"))
+        )
+
+        self.assertEqual(gain_loss_set.count, 2)
+        entry_count: int = 0
+        for _ in gain_loss_set:
+            entry_count += 1
+        self.assertEqual(entry_count, 2)
+
     def test_bad_gain_loss_set(self) -> None:
         gain_loss_set: GainLossSet
         asset: str = "B4"

@@ -38,7 +38,7 @@ from rp2.configuration import (
 )
 from rp2.input_data import InputData
 from rp2.localization import set_generation_language
-from rp2.logger import LOG_FILE, LOGGER
+from rp2.logger import LOG_FILE, LOGGER, configure_logging
 from rp2.ods_parser import open_ods, parse_ods
 from rp2.per_wallet_tax_engine import compute_tax_per_wallet
 from rp2.tax_engine import compute_tax
@@ -67,6 +67,7 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
     set_generation_language(args.generation_language)
 
     _setup_paths(parser=parser, configuration_file=args.configuration_file, input_file=args.input_file, output_dir=args.output_dir)
+    configure_logging()
 
     # On certain platforms the mpdecimal system library is missing (see details at: https://github.com/eprbell/rp2/issues/25).
     try:
