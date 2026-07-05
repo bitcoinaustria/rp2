@@ -73,6 +73,27 @@ class TestOutTransaction(unittest.TestCase):
         )
         self.assertEqual(RP2Decimal("50"), lost_with_recovery.fiat_taxable_amount)
 
+    def test_staking_loss_is_out_disposal_not_earning(self) -> None:
+        # Regression for upstream eprbell/rp2#119: staking losses are represented as OUT STAKING
+        # transactions, while IN crypto_in remains positive-only.
+        staking_loss: OutTransaction = OutTransaction(
+            self._configuration,
+            "6/1/2020 3:59:59 -04:00",
+            "B1",
+            "Coinbase Pro",
+            "Bob",
+            "STAKING",
+            RP2Decimal("1000"),
+            RP2Decimal("0.03"),
+            RP2Decimal("0"),
+            row=42,
+        )
+        self.assertEqual(TransactionType.STAKING, staking_loss.transaction_type)
+        self.assertTrue(staking_loss.is_taxable())
+        self.assertFalse(staking_loss.is_earning())
+        self.assertEqual(RP2Decimal("0.03"), staking_loss.crypto_taxable_amount)
+        self.assertEqual(RP2Decimal("30.00"), staking_loss.fiat_taxable_amount)
+
     def test_taxable_out_transaction(self) -> None:
         out_transaction: OutTransaction = OutTransaction(
             self._configuration,
