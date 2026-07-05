@@ -23,7 +23,7 @@ from jsonschema import validate
 
 from rp2.configuration import Keyword
 from rp2.configuration_schema import CONFIGURATION_SCHEMA
-from rp2.logger import LOGGER
+from rp2.logger import LOGGER, configure_logging
 
 _VERSION: str = "0.1.0"
 
@@ -47,6 +47,8 @@ def rp2_configuration_translator() -> None:
         print(f"Output file '{ini_file_name}' exists")
         parser.print_help()
         sys.exit(1)
+
+    configure_logging()
 
     try:
         json_configuration: Any

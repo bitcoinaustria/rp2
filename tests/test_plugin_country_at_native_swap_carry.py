@@ -353,7 +353,7 @@ class TestNativeATSwapCarry(unittest.TestCase):
         ]
         b2_out = [self._sell("B2", 3, swap_timestamp, "0.5", "1000", notes="at_swap_link=b2-to-b1")]
 
-        with self.assertRaisesRegex(RP2ValueError, "Unable to order Austrian swap-linked taxable events"):
+        with self.assertRaisesRegex(RP2ValueError, "Cyclic Austrian swap basis dependency"):
             self._compute(
                 {
                     "B1": self._input_data("B1", b1_in, b1_out),

@@ -62,6 +62,7 @@ def compute_native_at_tax(
         incoming_pairs_by_asset.setdefault(swap_pair.in_asset, []).append(swap_pair)
     for asset_pairs in incoming_pairs_by_asset.values():
         asset_pairs.sort(key=_swap_pair_sort_key)
+    _reject_cyclic_swap_dependencies(pairs, incoming_pairs_by_asset)
 
     basis_overrides_by_asset: dict[str, dict[InTransaction, RP2Decimal]] = {asset: {} for asset in asset_to_input_data}
     resolved_incoming_by_asset: dict[str, set[InTransaction]] = {asset: set() for asset in asset_to_input_data}
@@ -155,6 +156,60 @@ def _first_unresolved_incoming_pair(
             return None
         if pair.in_transaction not in resolved_incoming_by_asset[asset] and _incoming_can_affect_event(pair.in_transaction, taxable_event):
             return pair
+    return None
+
+
+def _reject_cyclic_swap_dependencies(
+    swap_pairs: dict[str, AtSwapPair],
+    incoming_pairs_by_asset: dict[str, list[AtSwapPair]],
+) -> None:
+    dependency_graph: dict[str, set[str]] = {swap_id: set() for swap_id in swap_pairs}
+    for pair in swap_pairs.values():
+        for blocker in incoming_pairs_by_asset.get(pair.out_asset, []):
+            if blocker.swap_id == pair.swap_id:
+                continue
+            if blocker.in_transaction.timestamp > pair.out_transaction.timestamp:
+                continue
+            if _incoming_can_affect_event(blocker.in_transaction, pair.out_transaction):
+                dependency_graph[pair.swap_id].add(blocker.swap_id)
+
+    cycle: list[str] | None = _find_dependency_cycle(dependency_graph)
+    if cycle is not None:
+        cycle_summary: str = " -> ".join(f"at_swap_link={swap_id}" for swap_id in cycle)
+        raise RP2ValueError(
+            "Cyclic Austrian swap basis dependency: same-pool Neu swap legs cannot carry basis before their own "
+            f"incoming leg has been resolved ({cycle_summary}). Add distinct at_pool markers for independent pools, "
+            "or split the transactions into an order that does not require using unresolved carried basis."
+        )
+
+
+def _find_dependency_cycle(dependency_graph: dict[str, set[str]]) -> list[str] | None:
+    visited: set[str] = set()
+    active: set[str] = set()
+    stack: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        if node in active:
+            cycle_start: int = stack.index(node)
+            return stack[cycle_start:] + [node]
+        if node in visited:
+            return None
+
+        active.add(node)
+        stack.append(node)
+        for dependency in sorted(dependency_graph.get(node, set())):
+            cycle = visit(dependency)
+            if cycle is not None:
+                return cycle
+        stack.pop()
+        active.remove(node)
+        visited.add(node)
+        return None
+
+    for node in sorted(dependency_graph):
+        cycle = visit(node)
+        if cycle is not None:
+            return cycle
     return None
 
 

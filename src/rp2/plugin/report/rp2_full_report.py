@@ -784,15 +784,17 @@ class Generator(AbstractODSGenerator):
         if not row:
             # This may occur if command line time filters are activated
             return value
+        link_target: str = f"#{self.get_in_out_sheet_name(transaction.asset)}.a{row}:z{row}"
         if isinstance(value, (RP2Decimal, int, float)):
-            return f'=HYPERLINK("#{self.get_in_out_sheet_name(transaction.asset)}.a{row}:z{row}"; {value})'
-        return f'=HYPERLINK("#{self.get_in_out_sheet_name(transaction.asset)}.a{row}:z{row}"; "{value}")'
+            return self._formula(f"=HYPERLINK({self._quote_formula_string(link_target)}; {value})")
+        return self._formula(f"=HYPERLINK({self._quote_formula_string(link_target)}; {self._quote_formula_string(value)})")
 
     def __get_hyperlinked_summary_value(self, asset: str, value: Any, year: int) -> Any:
         row: int = self.__tax_sheet_year_2_row[_AssetAndYear(asset, year)]
+        link_target: str = f"#{self.get_tax_sheet_name(asset)}.a{row}:z{row}"
         if isinstance(value, (RP2Decimal, int, float)):
-            return f'=HYPERLINK("#{self.get_tax_sheet_name(asset)}.a{row}:z{row}"; {value})'
-        return f'=HYPERLINK("#{self.get_tax_sheet_name(asset)}.a{row}:z{row}"; "{value}")'
+            return self._formula(f"=HYPERLINK({self._quote_formula_string(link_target)}; {value})")
+        return self._formula(f"=HYPERLINK({self._quote_formula_string(link_target)}; {self._quote_formula_string(value)})")
 
     def __get_in_out_sheet_row(self, transaction: AbstractTransaction) -> Optional[int]:
         if transaction not in self.__in_out_sheet_transaction_2_row:

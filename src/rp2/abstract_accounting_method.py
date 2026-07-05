@@ -117,7 +117,7 @@ class AbstractAcquiredLotCandidates:
         self.__acquired_lot_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
             {} if acquired_lot_2_fiat_in_with_fee_override is None else acquired_lot_2_fiat_in_with_fee_override
         )
-        self.__to_index = 0
+        self.__to_index = -1
         self.__from_index = 0
 
     def set_from_index(self, from_index: int) -> None:
@@ -255,11 +255,12 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
 
     def set_to_index(self, to_index: int) -> None:
         # Control how far to advance the iterator, caller is responsible for updating
-        for i in range(self.to_index, to_index + 1):
+        for i in range(self.to_index + 1, to_index + 1):
             lot = self.acquired_lot_list[i]
             self._accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, lot)
             self._accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, lot)
-        super().set_to_index(to_index)
+        if to_index > self.to_index:
+            super().set_to_index(to_index)
 
     @property
     def acquired_lot_heap(self) -> List[Tuple[AcquiredLotSortKey, InTransaction]]:
@@ -277,6 +278,7 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         accounting_method = cast(AbstractFeatureBasedAccountingMethod, self.accounting_method)
         accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, acquired_lot)
         accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, acquired_lot)
+        super().set_to_index(len(self.acquired_lot_list) - 1)
 
     def reset_partial_amounts(self, accounting_method: "AbstractAccountingMethod", original_partial_amounts: Dict[InTransaction, RP2Decimal]) -> None:
         if not isinstance(accounting_method, AbstractFeatureBasedAccountingMethod):

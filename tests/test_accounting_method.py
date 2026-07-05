@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List
 
-from rp2.abstract_accounting_method import AbstractAccountingMethod
+from rp2.abstract_accounting_method import (
+    AbstractAccountingMethod,
+    FeatureBasedAcquiredLotCandidates,
+)
 from rp2.configuration import Configuration
 from rp2.in_transaction import InTransaction
 from rp2.plugin.accounting_method.fifo import AccountingMethod as AccountingMethodFIFO
@@ -130,6 +133,27 @@ class TestAccountingMethod(unittest.TestCase):
                 self.assertEqual(result.amount, RP2Decimal(test.want[i].amount))
                 self.assertEqual(result.acquired_lot.row, test.want[i].row)
                 i += 1
+
+    def test_feature_based_set_to_index_indexes_each_lot_once(self) -> None:
+        in_transactions = self._initialize_acquired_lots([InTransactionDescriptor(10, 10), InTransactionDescriptor(12, 20), InTransactionDescriptor(11, 30)])
+        method = AccountingMethodHIFO()
+
+        fixed_lot_candidates = method.create_lot_candidates(in_transactions, {})
+        self.assertIsInstance(fixed_lot_candidates, FeatureBasedAcquiredLotCandidates)
+        fixed_lot_candidates.set_to_index(0)
+        fixed_lot_candidates.set_to_index(0)
+        fixed_lot_candidates.set_to_index(1)
+        self.assertEqual(len(fixed_lot_candidates.acquired_lot_heap), 2)
+        self.assertEqual(len(fixed_lot_candidates.taxable_event_acquired_lot_heap), 2)
+
+        dynamic_lot_candidates = method.create_lot_candidates([], {})
+        self.assertIsInstance(dynamic_lot_candidates, FeatureBasedAcquiredLotCandidates)
+        dynamic_lot_candidates.add_acquired_lot(in_transactions[0])
+        dynamic_lot_candidates.set_to_index(0)
+        dynamic_lot_candidates.add_acquired_lot(in_transactions[1])
+        dynamic_lot_candidates.set_to_index(1)
+        self.assertEqual(len(dynamic_lot_candidates.acquired_lot_heap), 2)
+        self.assertEqual(len(dynamic_lot_candidates.taxable_event_acquired_lot_heap), 2)
 
     def test_with_fixed_lot_candidates(self) -> None:
         # Go-style, table-based tests. The want field contains the expected results.
