@@ -327,6 +327,16 @@ class TestConfiguration(unittest.TestCase):
 
         config[Keyword.ACCOUNTING_METHODS.value] = {"1970": "hifo", "2020": "lifo"}
 
+    def test_general_generators_override_country_defaults(self) -> None:
+        config = ConfigParser()
+        config.read("./config/test_data.ini")
+        configured_generators = {"rp2.plugin.report.custom_report", "rp2.plugin.report.open_positions"}
+        config[Keyword.GENERAL.value][Keyword.GENERATORS.value] = ", ".join(sorted(configured_generators))
+
+        configuration = self._test_config(config)
+
+        self.assertEqual(configuration.generators, configured_generators)
+
     def test_creation(self) -> None:
         with self.assertRaisesRegex(RP2TypeError, "Parameter 'country' is not of type AbstractCountry: .*"):
             Configuration("./config/test_data.ini", None)  # type: ignore

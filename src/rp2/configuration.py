@@ -225,7 +225,7 @@ class Configuration:  # pylint: disable=too-many-public-methods
                     self.__assets = self._validate_string_set(Keyword.ASSETS.value, ini_configuration[section_name], configuration_path)
                     self.__exchanges = self._validate_string_set(Keyword.EXCHANGES.value, ini_configuration[section_name], configuration_path)
                     self.__holders = self._validate_string_set(Keyword.HOLDERS.value, ini_configuration[section_name], configuration_path)
-                    if Keyword.GENERATORS.value in ini_configuration:
+                    if Keyword.GENERATORS.value in ini_configuration[section_name]:
                         self.__generators = self._validate_string_set(Keyword.GENERATORS.value, ini_configuration[section_name], configuration_path)
                 elif normalized_section_name == Keyword.IN_HEADER.value:
                     if self.__in_header:
@@ -327,9 +327,7 @@ class Configuration:  # pylint: disable=too-many-public-methods
                 ) from exc
         missing_columns: Set[str] = _REQUIRED_HEADER_COLUMNS.get(normalized_section_name, set()) - set(header_2_column.keys())
         if missing_columns:
-            raise RP2ValueError(
-                f"{configuration_path}: section '{section.name}' is missing required column(s): {', '.join(sorted(missing_columns))}"
-            )
+            raise RP2ValueError(f"{configuration_path}: section '{section.name}' is missing required column(s): {', '.join(sorted(missing_columns))}")
         return header_2_column
 
     def _validate_accounting_method_section(self, section: SectionProxy, configuration_path: str) -> Dict[int, str]:
@@ -343,9 +341,7 @@ class Configuration:  # pylint: disable=too-many-public-methods
             try:
                 numeric_year: int = int(year.strip())
                 if numeric_year < MIN_DATE.year:
-                    raise RP2ValueError(
-                        f"{configuration_path}: invalid year value in {section_label} section (integer > {MIN_DATE.year} was expected): {year}"
-                    )
+                    raise RP2ValueError(f"{configuration_path}: invalid year value in {section_label} section (integer > {MIN_DATE.year} was expected): {year}")
                 result[numeric_year] = method.strip()
             except ValueError as exc:
                 raise RP2ValueError(f"{configuration_path}: invalid year value in {section_label} section (integer was expected): {year}") from exc

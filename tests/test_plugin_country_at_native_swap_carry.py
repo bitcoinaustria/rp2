@@ -28,15 +28,10 @@ from rp2.intra_transaction import IntraTransaction
 from rp2.out_transaction import OutTransaction
 from rp2.plugin.accounting_method.fifo import AccountingMethod as FifoAccountingMethod
 from rp2.plugin.accounting_method.moving_average_at import AccountingMethod
-from rp2.plugin.country.at import (
-    AT,
-    AtDisposalCategory,
-    classify_disposal,
-    collect_at_swap_link_pairs,
-)
-from rp2.plugin.country.at_native_tax_engine import compute_native_at_tax
+from rp2.plugin.country.at import AT, AtDisposalCategory, classify_disposal
 from rp2.rp2_decimal import RP2Decimal
 from rp2.rp2_error import RP2ValueError
+from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
 
 
@@ -148,12 +143,18 @@ class TestNativeATSwapCarry(unittest.TestCase):
         return InputData(asset, in_set, out_set, intra_set)
 
     def _compute(self, asset_to_input_data: Dict[str, InputData]) -> Dict[str, ComputedData]:
-        return compute_native_at_tax(
+        accounting_engine = self._make_engine()
+        result = AT().compute_tax_for_assets(
             configuration=self._configuration,
-            accounting_engine=self._make_engine(),
+            accounting_engine=accounting_engine,
             asset_to_input_data=asset_to_input_data,
-            swap_pairs=collect_at_swap_link_pairs(list(asset_to_input_data.values())),
         )
+        if result is None:
+            return {
+                asset: compute_tax(configuration=self._configuration, accounting_engine=accounting_engine, input_data=input_data)
+                for asset, input_data in asset_to_input_data.items()
+            }
+        return result
 
     def _gain_loss_list(self, computed_data: ComputedData) -> List[GainLoss]:
         return [entry for entry in computed_data.gain_loss_set if isinstance(entry, GainLoss)]
@@ -379,11 +380,22 @@ class TestNativeATSwapCarry(unittest.TestCase):
             "B2": self._input_data("B2", [b2_incoming], b2_out),
         }
         with self.assertRaisesRegex(RP2ValueError, "requires the `moving_average_at` accounting method"):
-            compute_native_at_tax(
+            AT().compute_tax_for_assets(
                 configuration=self._configuration,
                 accounting_engine=fifo_engine,
                 asset_to_input_data=asset_to_input_data,
-                swap_pairs=collect_at_swap_link_pairs(list(asset_to_input_data.values())),
+            )
+
+    def test_public_runner_rejects_orphan_swap_marker(self) -> None:
+        b1_in = [self._buy("B1", 1, "2023-01-01 00:00:00 +0000", "1", "100")]
+        b1_out = [self._sell("B1", 2, "2023-03-01 00:00:00 +0000", "0.5", "1000", notes="at_swap_link=orphan")]
+        asset_to_input_data = {"B1": self._input_data("B1", b1_in, b1_out)}
+
+        with self.assertRaisesRegex(RP2ValueError, "Unpaired `at_swap_link=orphan`"):
+            AT().compute_tax_for_assets(
+                configuration=self._configuration,
+                accounting_engine=self._make_engine(),
+                asset_to_input_data=asset_to_input_data,
             )
 
 
