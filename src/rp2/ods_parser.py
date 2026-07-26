@@ -341,11 +341,3 @@ def _is_table_end(cell_value: str) -> bool:
 
 def _is_empty(cell_value: str) -> bool:
     return cell_value is None or cell_value == ""
-
-
-def main() -> None:
-    pass
-
-
-if __name__ == "__main__":
-    main()

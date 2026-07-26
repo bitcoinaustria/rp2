@@ -174,10 +174,6 @@ class ComputedData:  # pylint: disable=too-many-public-methods
             )
 
         yearly_gain_loss_set: Set[YearlyGainLoss] = set()
-        crypto_taxable_amount_total: RP2Decimal = ZERO
-        fiat_taxable_amount_total: RP2Decimal = ZERO
-        cost_basis_total: RP2Decimal = ZERO
-        gain_loss_total: RP2Decimal = ZERO
         for key, value in summaries.items():
             yearly_gain_loss: YearlyGainLoss = YearlyGainLoss(
                 year=key.year,
@@ -190,10 +186,6 @@ class ComputedData:  # pylint: disable=too-many-public-methods
                 fiat_gain_loss=value.fiat_gain_loss,
             )
             yearly_gain_loss_set.add(yearly_gain_loss)
-            crypto_taxable_amount_total += yearly_gain_loss.crypto_amount
-            fiat_taxable_amount_total += yearly_gain_loss.fiat_amount
-            cost_basis_total += yearly_gain_loss.fiat_cost_basis
-            gain_loss_total += yearly_gain_loss.fiat_gain_loss
 
         return list(sorted(yearly_gain_loss_set, key=_yearly_gain_loss_sort_criteria, reverse=True))
 
