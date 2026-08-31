@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import unittest
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from prezzemolo.avl_tree import AVLTree
 
@@ -145,6 +145,36 @@ class TestMovingAverageAT(unittest.TestCase):  # pylint: disable=too-many-public
         self.assertEqual(len(gains), 1)
         self._assert_decimal_equal(gains[0].fiat_cost_basis, "100")  # 0.5 * 200
         self._assert_decimal_equal(gains[0].fiat_gain, "100")
+
+    def test_neuvermoegen_realized_plus_open_basis_conserves_pool_basis(self) -> None:
+        computed = self._compute(
+            [
+                self._buy(row=1, timestamp="2023-01-01 00:00:00 +0000", crypto_in="0.01", spot_price="10000"),
+                self._buy(row=2, timestamp="2023-02-01 00:00:00 +0000", crypto_in="0.01", spot_price="30000"),
+            ],
+            [
+                self._sell(
+                    row=3,
+                    timestamp="2023-03-01 00:00:00 +0000",
+                    crypto_out="0.009",
+                    crypto_fee="0.001",
+                    spot_price="50000",
+                )
+            ],
+        )
+
+        realized_basis = sum((gain.fiat_cost_basis for gain in self._gain_loss_list(computed)), _rp2_decimal("0"))
+        open_basis = sum(
+            (
+                computed.get_in_transaction_fiat_in_with_fee(in_transaction)
+                * (_rp2_decimal("1") - computed.get_open_position_in_lot_sold_percentage(in_transaction))
+                for in_transaction in (cast(InTransaction, entry) for entry in computed.open_position_in_transaction_set)
+            ),
+            _rp2_decimal("0"),
+        )
+        self._assert_decimal_equal(realized_basis, "200")
+        self._assert_decimal_equal(open_basis, "200")
+        self._assert_decimal_equal(realized_basis + open_basis, "400")
 
     def test_earn_event_does_not_deplete_neu_pool(self) -> None:
         # Regression: an earn event (STAKING) is income at receipt with no acquired lot, but the

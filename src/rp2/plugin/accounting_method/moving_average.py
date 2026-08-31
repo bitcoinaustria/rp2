@@ -82,6 +82,21 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             unit_cost_basis_override=pool_average,
         )
 
+    def _restore_consumed_basis(
+        self,
+        lot_candidates: AbstractAcquiredLotCandidates,
+        acquired_lot_and_amount: AcquiredLotAndAmount,
+        amount: RP2Decimal,
+    ) -> Optional[RP2Decimal]:
+        if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
+            raise RP2TypeError(f"Internal error: moving_average expects PoolAcquiredLotCandidates, got {type(lot_candidates).__name__}")
+        unit_basis: Optional[RP2Decimal] = acquired_lot_and_amount.unit_cost_basis_override
+        if unit_basis is None:
+            raise RP2TypeError("Internal error: moving_average rollback is missing its unit cost basis")
+        pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
+        lot_candidates.set_pool(_DEFAULT_POOL, pool_qty + amount, pool_cost_total + amount * unit_basis)
+        return lot_candidates.pool_average(_DEFAULT_POOL)
+
     def __sync_pool(self, lot_candidates: PoolAcquiredLotCandidates) -> None:
         pool_qty, pool_cost_total = lot_candidates.get_pool(_DEFAULT_POOL)
         last_synced: int = lot_candidates.get_pool_last_synced_index(_DEFAULT_POOL)
@@ -93,3 +108,7 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             pool_cost_total = pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot)
         lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
         lot_candidates.set_pool_last_synced_index(_DEFAULT_POOL, upper_bound)
+        pool_average: RP2Decimal = lot_candidates.pool_average(_DEFAULT_POOL)
+        for i in range(upper_bound + 1):
+            lot = lots[i]
+            lot_candidates.set_fiat_in_with_fee(lot, pool_average * lot.crypto_in)

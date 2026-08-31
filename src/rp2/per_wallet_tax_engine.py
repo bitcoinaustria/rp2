@@ -31,8 +31,10 @@ from rp2.gain_loss import GainLoss
 from rp2.gain_loss_set import GainLossSet
 from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
+from rp2.intra_transaction import IntraTransaction
 from rp2.logger import LOGGER
-from rp2.rp2_decimal import RP2Decimal
+from rp2.rp2_decimal import ZERO, RP2Decimal
+from rp2.rp2_error import RP2ValueError
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
 from rp2.transfer_analyzer import TransferAnalyzer
@@ -47,6 +49,7 @@ def compute_tax_per_wallet(
     Configuration.type_check("configuration", configuration)
     AccountingEngine.type_check("accounting_engine", accounting_engine)
     InputData.type_check("universal_input_data", universal_input_data)
+    _reject_fee_bearing_intra_transactions(universal_input_data)
 
     asset: str = universal_input_data.asset
 
@@ -61,6 +64,7 @@ def compute_tax_per_wallet(
     merged_out_set: TransactionSet = TransactionSet(configuration, "OUT", asset, MIN_DATE, MAX_DATE)
     merged_intra_set: TransactionSet = TransactionSet(configuration, "INTRA", asset, MIN_DATE, MAX_DATE)
     merged_actual_amounts: Dict[InTransaction, RP2Decimal] = {}
+    merged_fiat_basis_overrides: Dict[InTransaction, RP2Decimal] = {}
     merged_taxable_events: TransactionSet = TransactionSet(configuration, "MIXED", asset, MIN_DATE, MAX_DATE)
     merged_gain_loss_set: GainLossSet = GainLossSet(configuration, asset, MIN_DATE, MAX_DATE)
 
@@ -68,13 +72,16 @@ def compute_tax_per_wallet(
         LOGGER.debug("Per-wallet tax engine: computing tax for %s", account)
         fresh_engine: AccountingEngine = AccountingEngine(accounting_engine.years_2_methods)
         per_wallet_computed: ComputedData = compute_tax(configuration, fresh_engine, per_wallet_input)
+        taxable_event_set, gain_loss_set = per_wallet_computed.get_unfiltered_taxable_event_and_gain_loss_set()
 
         _extend_transaction_set(merged_in_set, per_wallet_input.unfiltered_in_transaction_set)
         _extend_transaction_set(merged_out_set, per_wallet_input.unfiltered_out_transaction_set)
         _extend_transaction_set(merged_intra_set, per_wallet_input.unfiltered_intra_transaction_set)
         merged_actual_amounts.update(per_wallet_input.in_transaction_2_actual_amount)
+        for entry in per_wallet_input.unfiltered_in_transaction_set:
+            in_transaction = cast(InTransaction, entry)
+            merged_fiat_basis_overrides[in_transaction] = per_wallet_computed.get_in_transaction_fiat_in_with_fee(in_transaction)
 
-        taxable_event_set, gain_loss_set = per_wallet_computed.get_unfiltered_taxable_event_and_gain_loss_set()
         _extend_transaction_set(merged_taxable_events, taxable_event_set)
         _extend_gain_loss_set(merged_gain_loss_set, gain_loss_set)
 
@@ -86,6 +93,7 @@ def compute_tax_per_wallet(
         in_transaction_2_actual_amount=merged_actual_amounts,
         from_date=configuration.from_date,
         to_date=configuration.to_date,
+        in_transaction_2_fiat_in_with_fee_override=merged_fiat_basis_overrides,
     )
 
     return ComputedData(
@@ -95,6 +103,7 @@ def compute_tax_per_wallet(
         merged_input_data,
         configuration.from_date,
         configuration.to_date,
+        in_transaction_2_fiat_in_with_fee_override=merged_fiat_basis_overrides,
     )
 
 
@@ -110,3 +119,14 @@ def _extend_gain_loss_set(target: GainLossSet, source: GainLossSet) -> None:
     for entry in source:
         gain_loss: GainLoss = cast(GainLoss, entry)
         target.add_entry(gain_loss)
+
+
+def _reject_fee_bearing_intra_transactions(input_data: InputData) -> None:
+    for entry in input_data.unfiltered_intra_transaction_set:
+        intra_transaction = cast(IntraTransaction, entry)
+        if intra_transaction.crypto_fee == ZERO:
+            continue
+        raise RP2ValueError(
+            "Fee-bearing intra-transactions are unsupported with per_wallet application "
+            "because their fee basis cannot be allocated chronologically without a shared accounting cursor."
+        )

@@ -239,3 +239,8 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
             lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot))
         lot_candidates.set_pool_last_synced_index(pool, upper)
+        pool_average: RP2Decimal = lot_candidates.pool_average(pool)
+        for i in range(upper + 1):
+            lot = lots[i]
+            if classify_lot_regime(lot) == REGIME_NEU and pool_id_from_notes(lot.notes) == pool:
+                lot_candidates.set_fiat_in_with_fee(lot, pool_average * lot.crypto_in)

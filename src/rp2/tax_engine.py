@@ -71,9 +71,12 @@ class TaxEngineCursor:
         self.__taxable_event_list: List[AbstractTransaction] = [cast(AbstractTransaction, entry) for entry in self.__unfiltered_taxable_event_set]
         self.__taxable_event_index: int = 0
         self.__gain_loss_set: GainLossSet = GainLossSet(configuration, input_data.asset, MIN_DATE, MAX_DATE)
-        self.__acquired_lot_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
-            {} if acquired_lot_2_fiat_in_with_fee_override is None else acquired_lot_2_fiat_in_with_fee_override
-        )
+        if acquired_lot_2_fiat_in_with_fee_override is None:
+            self.__acquired_lot_2_fiat_in_with_fee_override = dict(input_data.in_transaction_2_fiat_in_with_fee_override)
+        else:
+            for acquired_lot, fiat_basis in input_data.in_transaction_2_fiat_in_with_fee_override.items():
+                acquired_lot_2_fiat_in_with_fee_override.setdefault(acquired_lot, fiat_basis)
+            self.__acquired_lot_2_fiat_in_with_fee_override = acquired_lot_2_fiat_in_with_fee_override
         self.__current_acquired_lot: Optional[InTransaction] = None
         self.__current_acquired_lot_amount: RP2Decimal = ZERO
 

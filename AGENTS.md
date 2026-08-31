@@ -91,6 +91,8 @@ Kassiber iterates `ComputedData.gain_loss_set`, calls `classify_disposal` per ro
 - **One class per file.** File name matches the class name, lowercase-with-underscores. Abstract class names start with `Abstract`.
 - **No `*` imports.** No raw strings unless they occur exactly once (use a named constant).
 - **Logging via [src/rp2/logger.py](src/rp2/logger.py).**
+- **Per-wallet transfer cutoff.** All fee-bearing intra-transactions are rejected under `per_wallet`: taxable replay cannot allocate an earlier fee chronologically while also carrying non-taxable principal. Fee-free transfers remain supported.
+- **Per-wallet scope.** `per_wallet` is not a general production pool engine: its tax replay does not remove transferred principal before a later source disposal (for example, FIFO can reuse the transferred lot). A production country-wide pool needs a dedicated chronological engine, not this helper.
 - **Identity.** Any class added to a dict or set must redefine `__eq__`, `__ne__`, and `__hash__`.
 
 ## Working rules
