@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import unittest
+from datetime import date
 from typing import List, Optional, cast
 
 from prezzemolo.avl_tree import AVLTree
@@ -20,7 +21,7 @@ from prezzemolo.avl_tree import AVLTree
 from rp2.abstract_accounting_method import AbstractAccountingMethod
 from rp2.accounting_engine import AccountingEngine
 from rp2.computed_data import ComputedData
-from rp2.configuration import MIN_DATE, Configuration
+from rp2.configuration import MAX_DATE, MIN_DATE, Configuration
 from rp2.gain_loss import GainLoss
 from rp2.in_transaction import InTransaction
 from rp2.input_data import InputData
@@ -96,7 +97,7 @@ class TestMovingAverageAT(unittest.TestCase):  # pylint: disable=too-many-public
             notes=notes,
         )
 
-    def _compute(self, in_txs: List[InTransaction], out_txs: List[OutTransaction]) -> ComputedData:
+    def _compute(self, in_txs: List[InTransaction], out_txs: List[OutTransaction], from_date: date = MIN_DATE, to_date: date = MAX_DATE) -> ComputedData:
         in_set: TransactionSet = TransactionSet(self._configuration, "IN", _ASSET)
         for in_tx in in_txs:
             in_set.add_entry(in_tx)
@@ -104,14 +105,38 @@ class TestMovingAverageAT(unittest.TestCase):  # pylint: disable=too-many-public
         for out_tx in out_txs:
             out_set.add_entry(out_tx)
         intra_set: TransactionSet = TransactionSet(self._configuration, "INTRA", _ASSET)
-        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set)
-        return compute_tax(self._configuration, self._make_engine(), input_data)
+        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set, from_date=from_date, to_date=to_date)
+        configuration = Configuration("./config/test_data.ini", AT(), from_date=from_date, to_date=to_date)
+        return compute_tax(configuration, self._make_engine(), input_data)
 
     def _gain_loss_list(self, computed_data: ComputedData) -> List[GainLoss]:
         return [entry for entry in computed_data.gain_loss_set if isinstance(entry, GainLoss)]
 
     def _assert_decimal_equal(self, actual: RP2Decimal, expected: str) -> None:
         self.assertEqual(actual, _rp2_decimal(expected), f"expected {expected}, got {actual}")
+
+    def test_neu_open_basis_cutoff_and_late_acquisitions(self) -> None:
+        buys = [self._buy(1, "2023-01-01 00:00:00 +0000", "1", "100"), self._buy(3, "2023-03-01 00:00:00 +0000", "1", "300")]
+        sales = [self._sell(2, "2023-02-01 00:00:00 +0000", "0.5", "400")]
+        for from_date in (MIN_DATE, date(2023, 2, 15)):
+            with self.subTest(from_date=from_date):
+                early = self._compute(buys, sales, from_date, date(2023, 2, 28))
+                self._assert_decimal_equal(early.get_open_position_in_transaction_fiat_in_with_fee(buys[0]), "100")
+                self._assert_decimal_equal(early.get_in_transaction_fiat_in_with_fee(buys[1]), "300")
+        complete = self._compute(buys, sales)
+        for lot in buys:
+            self.assertEqual(complete.get_open_position_in_transaction_fiat_in_with_fee(lot), _rp2_decimal("350") / _rp2_decimal("1.5"))
+
+    def test_open_snapshot_syncs_untouched_neu_pools_and_keeps_alt_lots(self) -> None:
+        buys = [
+            self._buy(1, "2020-01-01 00:00:00 +0000", "1", "10"),
+            self._buy(2, "2023-01-01 00:00:00 +0000", "1", "100", notes="at_pool=A"),
+            self._buy(3, "2023-02-01 00:00:00 +0000", "1", "300", notes="at_pool=A"),
+            self._buy(4, "2023-03-01 00:00:00 +0000", "1", "500", notes="at_pool=B"),
+        ]
+        computed = self._compute(buys, [])
+        for lot, expected in zip(buys, ("10", "200", "200", "500")):
+            self._assert_decimal_equal(computed.get_open_position_in_transaction_fiat_in_with_fee(lot), expected)
 
     # ------------------------------------------------------------------ tests ------
 
@@ -166,7 +191,7 @@ class TestMovingAverageAT(unittest.TestCase):  # pylint: disable=too-many-public
         realized_basis = sum((gain.fiat_cost_basis for gain in self._gain_loss_list(computed)), _rp2_decimal("0"))
         open_basis = sum(
             (
-                computed.get_in_transaction_fiat_in_with_fee(in_transaction)
+                computed.get_open_position_in_transaction_fiat_in_with_fee(in_transaction)
                 * (_rp2_decimal("1") - computed.get_open_position_in_lot_sold_percentage(in_transaction))
                 for in_transaction in (cast(InTransaction, entry) for entry in computed.open_position_in_transaction_set)
             ),

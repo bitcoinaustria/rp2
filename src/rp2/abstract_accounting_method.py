@@ -22,6 +22,7 @@ from heapq import heappop, heappush
 from typing import Dict, List, NamedTuple, Optional, Tuple, cast
 
 from rp2.abstract_transaction import AbstractTransaction
+from rp2.configuration import Configuration
 from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2RuntimeError, RP2TypeError
@@ -168,6 +169,7 @@ class AbstractAcquiredLotCandidates:
 
     def set_fiat_in_with_fee(self, acquired_lot: InTransaction, fiat_in_with_fee: RP2Decimal) -> None:
         InTransaction.type_check("acquired_lot", acquired_lot)
+        Configuration.type_check_positive_decimal("fiat_in_with_fee", fiat_in_with_fee)
         self.__acquired_lot_2_fiat_in_with_fee_override[acquired_lot] = fiat_in_with_fee
 
     # Reset partial amounts to their original values and from index to zero.
@@ -294,6 +296,12 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
 
 
 class AbstractAccountingMethod:
+    def get_open_position_basis(self, lot_candidates: AbstractAcquiredLotCandidates) -> Dict[InTransaction, RP2Decimal]:
+        """Full-quantity basis for eligible lots, without consuming any inventory."""
+        if not isinstance(lot_candidates, AbstractAcquiredLotCandidates):
+            raise RP2TypeError("Parameter 'lot_candidates' is not of type AbstractAcquiredLotCandidates")
+        return {lot: lot_candidates.get_fiat_in_with_fee(lot) for lot in lot_candidates.acquired_lot_list[: lot_candidates.to_index + 1]}
+
     def create_lot_candidates(
         self,
         acquired_lot_list: List[InTransaction],

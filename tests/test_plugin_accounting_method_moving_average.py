@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import unittest
+from datetime import date
 from typing import List, Tuple
 
 from prezzemolo.avl_tree import AVLTree
@@ -20,11 +21,12 @@ from prezzemolo.avl_tree import AVLTree
 from rp2.abstract_accounting_method import AbstractAccountingMethod
 from rp2.accounting_engine import AccountingEngine
 from rp2.computed_data import ComputedData
-from rp2.configuration import MIN_DATE, Configuration
+from rp2.configuration import MAX_DATE, MIN_DATE, Configuration
 from rp2.gain_loss import GainLoss
 from rp2.in_transaction import InTransaction
 from rp2.input_data import InputData
 from rp2.out_transaction import OutTransaction
+from rp2.plugin.accounting_method.fifo import AccountingMethod as FIFOAccountingMethod
 from rp2.plugin.accounting_method.moving_average import AccountingMethod
 from rp2.plugin.country.us import US
 from rp2.rp2_decimal import RP2Decimal
@@ -85,7 +87,7 @@ class TestMovingAverage(unittest.TestCase):
             row=row,
         )
 
-    def _compute(self, in_txs: List[InTransaction], out_txs: List[OutTransaction]) -> ComputedData:
+    def _compute(self, in_txs: List[InTransaction], out_txs: List[OutTransaction], from_date: date = MIN_DATE, to_date: date = MAX_DATE) -> ComputedData:
         in_set: TransactionSet = TransactionSet(self._configuration, "IN", _ASSET)
         for in_tx in in_txs:
             in_set.add_entry(in_tx)
@@ -93,8 +95,9 @@ class TestMovingAverage(unittest.TestCase):
         for out_tx in out_txs:
             out_set.add_entry(out_tx)
         intra_set: TransactionSet = TransactionSet(self._configuration, "INTRA", _ASSET)
-        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set)
-        return compute_tax(self._configuration, self._make_engine(), input_data)
+        input_data: InputData = InputData(_ASSET, in_set, out_set, intra_set, from_date=from_date, to_date=to_date)
+        configuration = Configuration("./config/test_data.ini", US(), from_date=from_date, to_date=to_date)
+        return compute_tax(configuration, self._make_engine(), input_data)
 
     def _gain_loss_list(self, computed_data: ComputedData) -> List[GainLoss]:
         return [entry for entry in computed_data.gain_loss_set if isinstance(entry, GainLoss)]
@@ -103,6 +106,49 @@ class TestMovingAverage(unittest.TestCase):
         self.assertEqual(actual, _rp2_decimal(expected), f"expected {expected}, got {actual}")
 
     # ------------------------------------------------------------------ tests ------
+
+    def test_open_basis_is_cutoff_bounded_without_rewriting_acquisition_basis(self) -> None:
+        buys = [self._buy(1, "2023-01-01 00:00:00 +0000", "1", "100"), self._buy(3, "2023-03-01 00:00:00 +0000", "1", "300")]
+        sales = [self._sell(2, "2023-02-01 00:00:00 +0000", "0.5", "400"), self._sell(4, "2023-04-01 00:00:00 +0000", "0.5", "400")]
+        for from_date in (MIN_DATE, date(2023, 2, 15)):
+            with self.subTest(from_date=from_date):
+                computed = self._compute(buys, sales, from_date, date(2023, 2, 28))
+                self._assert_decimal_equal(computed.get_open_position_in_transaction_fiat_in_with_fee(buys[0]), "100")
+                self._assert_decimal_equal(computed.get_in_transaction_fiat_in_with_fee(buys[1]), "300")
+                _, history = computed.get_unfiltered_taxable_event_and_gain_loss_set()
+                gains = [entry for entry in history if isinstance(entry, GainLoss)]
+                self._assert_decimal_equal(gains[0].fiat_cost_basis, "50")
+                self.assertEqual(gains[1].fiat_cost_basis, _rp2_decimal("350") / _rp2_decimal("3"))
+
+    def test_open_basis_includes_acquisition_after_last_disposal(self) -> None:
+        buys = [self._buy(1, "2023-01-01 00:00:00 +0000", "1", "100"), self._buy(3, "2023-03-01 00:00:00 +0000", "1", "300")]
+        computed = self._compute(buys, [self._sell(2, "2023-02-01 00:00:00 +0000", "0.5", "400")])
+        for lot in buys:
+            self.assertEqual(computed.get_open_position_in_transaction_fiat_in_with_fee(lot), _rp2_decimal("350") / _rp2_decimal("1.5"))
+        self._assert_decimal_equal(computed.get_in_transaction_fiat_in_with_fee(buys[0]), "100")
+
+    def test_open_basis_without_disposals_and_before_first_acquisition(self) -> None:
+        buys = [self._buy(1, "2023-01-01 00:00:00 +0000", "1", "100"), self._buy(2, "2023-03-01 00:00:00 +0000", "1", "300")]
+        computed = self._compute(buys, [])
+        for lot in buys:
+            self._assert_decimal_equal(computed.get_open_position_in_transaction_fiat_in_with_fee(lot), "200")
+        early = self._compute(buys, [], to_date=date(2022, 12, 31))
+        self.assertEqual(len(list(early.open_position_in_transaction_set)), 0)
+
+    def test_new_pool_method_snapshot_uses_only_unconsumed_lot_fraction(self) -> None:
+        configuration = Configuration("./config/test_data.ini", US(), to_date=date(2024, 12, 31))
+        buys = [self._buy(1, "2023-01-01 00:00:00 +0000", "1", "100"), self._buy(2, "2023-02-01 00:00:00 +0000", "1", "300")]
+        in_set = TransactionSet(configuration, "IN", _ASSET)
+        for lot in buys:
+            in_set.add_entry(lot)
+        out_set = TransactionSet(configuration, "OUT", _ASSET)
+        out_set.add_entry(self._sell(3, "2023-03-01 00:00:00 +0000", "1", "400"))
+        input_data = InputData(_ASSET, in_set, out_set, TransactionSet(configuration, "INTRA", _ASSET))
+        methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        methods.insert_node(MIN_DATE.year, FIFOAccountingMethod())
+        methods.insert_node(2024, AccountingMethod())
+        computed = compute_tax(configuration, AccountingEngine(methods), input_data)
+        self._assert_decimal_equal(computed.get_open_position_in_transaction_fiat_in_with_fee(buys[1]), "300")
 
     def test_basic_moving_average_two_acquisitions_one_disposal(self) -> None:
         # Buy 1 BTC @ 100, Buy 1 BTC @ 300 → pool (2, 400, avg 200).

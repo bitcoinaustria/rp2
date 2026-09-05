@@ -223,7 +223,26 @@ class TaxEngineCursor:
 
         return TaxableEventComputation(first_taxable_event, tuple(gain_losses), taxable_event_unit_cost_basis)
 
+    def get_open_position_basis(self) -> Dict[InTransaction, RP2Decimal]:
+        """Snapshot this cursor's report-bounded replay without consuming more events."""
+        if self.__current_acquired_lot is not None:
+            self.__accounting_engine.set_acquired_lot_partial_amount(self.__current_acquired_lot, self.__current_acquired_lot_amount)
+        return self.__accounting_engine.get_open_position_basis(self.__configuration.to_date)
+
     def to_computed_data(self) -> ComputedData:
+        # Native cross-asset processing must finish resolving acquisition carry before this
+        # replay. Never seed chronological replay from an end-of-history pool average.
+        report_cursor = TaxEngineCursor(
+            self.__configuration,
+            self.__accounting_engine,
+            self.__input_data,
+            dict(self.__acquired_lot_2_fiat_in_with_fee_override),
+        )
+        event = report_cursor.current_taxable_event
+        while event is not None and event.timestamp.date() <= self.__configuration.to_date:
+            report_cursor.consume_next_taxable_event()
+            event = report_cursor.current_taxable_event
+        open_position_basis = report_cursor.get_open_position_basis()
         return ComputedData(
             self.__input_data.asset,
             self.__unfiltered_taxable_event_set,
@@ -232,4 +251,5 @@ class TaxEngineCursor:
             self.__configuration.from_date,
             self.__configuration.to_date,
             in_transaction_2_fiat_in_with_fee_override=self.__acquired_lot_2_fiat_in_with_fee_override,
+            open_position_in_transaction_2_fiat_in_with_fee_override=open_position_basis,
         )

@@ -58,8 +58,13 @@ class InputData:
             in_transaction_2_actual_amount if in_transaction_2_actual_amount is not None else {}
         )
         self.__in_transaction_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
-            in_transaction_2_fiat_in_with_fee_override if in_transaction_2_fiat_in_with_fee_override is not None else {}
+            dict(in_transaction_2_fiat_in_with_fee_override) if isinstance(in_transaction_2_fiat_in_with_fee_override, dict) else {}
         )
+        if in_transaction_2_fiat_in_with_fee_override is not None and not isinstance(in_transaction_2_fiat_in_with_fee_override, dict):
+            raise RP2TypeError("Parameter 'in_transaction_2_fiat_in_with_fee_override' is not of type dict")
+        for lot, basis in self.__in_transaction_2_fiat_in_with_fee_override.items():
+            InTransaction.type_check("acquired_lot", lot)
+            Configuration.type_check_positive_decimal("fiat_in_with_fee", basis)
         if not isinstance(from_date, date):
             raise RP2TypeError("Parameter 'from_date' is not of type date")
         if not isinstance(to_date, date):

@@ -206,6 +206,7 @@ class ComputedData:  # pylint: disable=too-many-public-methods
         from_date: date = MIN_DATE,
         to_date: date = MAX_DATE,
         in_transaction_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
+        open_position_in_transaction_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ) -> None:
         # pylint: disable=too-many-branches
         InputData.type_check("input_data", input_data)
@@ -233,6 +234,15 @@ class ComputedData:  # pylint: disable=too-many-public-methods
         self.__in_transaction_2_actual_amount: Dict[InTransaction, RP2Decimal] = input_data.in_transaction_2_actual_amount
         self.__in_transaction_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
             {} if in_transaction_2_fiat_in_with_fee_override is None else dict(in_transaction_2_fiat_in_with_fee_override)
+        )
+        if open_position_in_transaction_2_fiat_in_with_fee_override is not None:
+            if not isinstance(open_position_in_transaction_2_fiat_in_with_fee_override, dict):
+                raise RP2TypeError("Parameter 'open_position_in_transaction_2_fiat_in_with_fee_override' is not of type dict")
+            for lot, basis in open_position_in_transaction_2_fiat_in_with_fee_override.items():
+                InTransaction.type_check("open_position_lot", lot)
+                Configuration.type_check_positive_decimal("open_position_basis", basis)
+        self.__open_position_in_transaction_2_fiat_in_with_fee_override = (
+            {} if open_position_in_transaction_2_fiat_in_with_fee_override is None else dict(open_position_in_transaction_2_fiat_in_with_fee_override)
         )
 
         self.__filtered_balance_set: BalanceSet = BalanceSet(unfiltered_taxable_event_set.configuration, input_data, to_date)
@@ -429,6 +439,11 @@ class ComputedData:  # pylint: disable=too-many-public-methods
     def get_unfiltered_taxable_event_and_gain_loss_set(self) -> Tuple[TransactionSet, GainLossSet]:
         """Unfiltered taxable-event and gain/loss sets for callers that need pre-window data."""
         return self.__unfiltered_taxable_event_set, self.__unfiltered_gain_loss_set
+
+    def get_open_position_in_transaction_fiat_in_with_fee(self, in_transaction: InTransaction) -> RP2Decimal:
+        """Full-quantity basis at report cutoff, distinct from acquisition/native carry basis."""
+        InTransaction.type_check("in_transaction", in_transaction)
+        return self.__open_position_in_transaction_2_fiat_in_with_fee_override.get(in_transaction, self.get_in_transaction_fiat_in_with_fee(in_transaction))
 
 
 def _yearly_gain_loss_sort_criteria(yearly_gain_loss: YearlyGainLoss) -> str:

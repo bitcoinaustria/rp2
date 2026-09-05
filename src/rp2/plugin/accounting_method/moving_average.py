@@ -44,6 +44,13 @@ _DEFAULT_POOL: str = "default"
 # average unchanged (by construction: subtracting `amount * avg` from cost_total while
 # subtracting `amount` from qty preserves the ratio). Only acquisitions move the average.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
+    def get_open_position_basis(self, lot_candidates: AbstractAcquiredLotCandidates) -> Dict[InTransaction, RP2Decimal]:
+        if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
+            raise RP2TypeError("Parameter 'lot_candidates' is not of type PoolAcquiredLotCandidates")
+        self.__sync_pool(lot_candidates)
+        pool_average = lot_candidates.pool_average(_DEFAULT_POOL)
+        return {lot: pool_average * lot.crypto_in for lot in lot_candidates.acquired_lot_list[: lot_candidates.to_index + 1]}
+
     def create_lot_candidates(
         self,
         acquired_lot_list: List[InTransaction],
@@ -104,11 +111,10 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         upper_bound: int = min(lot_candidates.to_index, len(lots) - 1)
         for i in range(last_synced + 1, upper_bound + 1):
             lot = lots[i]
-            pool_qty = pool_qty + lot.crypto_in
-            pool_cost_total = pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot)
+            # A freshly activated method can inherit lots partially consumed by an earlier
+            # lot-based method. Only the still available fraction enters its new pool.
+            remaining = lot_candidates.get_partial_amount(lot) if lot_candidates.has_partial_amount(lot) else lot.crypto_in
+            pool_qty = pool_qty + remaining
+            pool_cost_total = pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot) * remaining / lot.crypto_in
         lot_candidates.set_pool(_DEFAULT_POOL, pool_qty, pool_cost_total)
         lot_candidates.set_pool_last_synced_index(_DEFAULT_POOL, upper_bound)
-        pool_average: RP2Decimal = lot_candidates.pool_average(_DEFAULT_POOL)
-        for i in range(upper_bound + 1):
-            lot = lots[i]
-            lot_candidates.set_fiat_in_with_fee(lot, pool_average * lot.crypto_in)

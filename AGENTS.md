@@ -93,6 +93,7 @@ Kassiber iterates `ComputedData.gain_loss_set`, calls `classify_disposal` per ro
 - **Logging via [src/rp2/logger.py](src/rp2/logger.py).**
 - **Per-wallet transfer cutoff.** All fee-bearing intra-transactions are rejected under `per_wallet`: taxable replay cannot allocate an earlier fee chronologically while also carrying non-taxable principal. Fee-free transfers remain supported.
 - **Per-wallet scope.** `per_wallet` is not a general production pool engine: its tax replay does not remove transferred principal before a later source disposal (for example, FIFO can reuse the transferred lot). A production country-wide pool needs a dedicated chronological engine, not this helper.
+- **Pool report basis.** Acquisition/native-carry overrides are never restated to a later pool average. Open positions use `ComputedData.get_open_position_in_transaction_fiat_in_with_fee()` at the report cutoff; `get_in_transaction_fiat_in_with_fee()` remains acquisition basis. Pooled per-wallet source disposals after an outgoing transfer and mixed pooled tax/transfer methods with non-self transfers fail closed.
 - **Identity.** Any class added to a dict or set must redefine `__eq__`, `__ne__`, and `__hash__`.
 
 ## Working rules

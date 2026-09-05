@@ -61,6 +61,21 @@ from rp2.rp2_error import RP2TypeError, RP2ValueError
 # Pool state lives on the `PoolAcquiredLotCandidates` container — one (qty, cost_total) entry
 # per pool id. The method itself is stateless.
 class AccountingMethod(AbstractChronologicalAccountingMethod):
+    def get_open_position_basis(self, lot_candidates: AbstractAcquiredLotCandidates) -> Dict[InTransaction, RP2Decimal]:
+        if not isinstance(lot_candidates, PoolAcquiredLotCandidates):
+            raise RP2TypeError("Parameter 'lot_candidates' is not of type PoolAcquiredLotCandidates")
+        lots = lot_candidates.acquired_lot_list[: lot_candidates.to_index + 1]
+        for pool in {pool_id_from_notes(lot.notes) for lot in lots if classify_lot_regime(lot) == REGIME_NEU}:
+            self.__sync_neu_pool(lot_candidates, pool)
+        return {
+            lot: (
+                lot_candidates.pool_average(pool_id_from_notes(lot.notes)) * lot.crypto_in
+                if classify_lot_regime(lot) == REGIME_NEU
+                else lot_candidates.get_fiat_in_with_fee(lot)
+            )
+            for lot in lots
+        }
+
     def create_lot_candidates(
         self,
         acquired_lot_list: List[InTransaction],
@@ -237,10 +252,6 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             if pool_id_from_notes(lot.notes) != pool:
                 continue
             pool_qty, pool_cost_total = lot_candidates.get_pool(pool)
-            lot_candidates.set_pool(pool, pool_qty + lot.crypto_in, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot))
+            remaining = lot_candidates.get_partial_amount(lot) if lot_candidates.has_partial_amount(lot) else lot.crypto_in
+            lot_candidates.set_pool(pool, pool_qty + remaining, pool_cost_total + lot_candidates.get_fiat_in_with_fee(lot) * remaining / lot.crypto_in)
         lot_candidates.set_pool_last_synced_index(pool, upper)
-        pool_average: RP2Decimal = lot_candidates.pool_average(pool)
-        for i in range(upper + 1):
-            lot = lots[i]
-            if classify_lot_regime(lot) == REGIME_NEU and pool_id_from_notes(lot.notes) == pool:
-                lot_candidates.set_fiat_in_with_fee(lot, pool_average * lot.crypto_in)

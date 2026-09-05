@@ -110,6 +110,7 @@ RP2 support for the US includes the following features:
   * HIFO,
   * LOFO.
 * Note: if `per_wallet` application is selected and no `transfer_methods` section is provided, RP2 falls back to the earliest configured accounting method. Year-scoped transfer-method transitions are not yet supported in one run and are rejected explicitly.
+* Draft per-wallet limits: fee-bearing transfers are rejected. When pool-based methods are involved, source-wallet disposals after an outgoing transfer and mixed tax/transfer methods with cross-wallet transfers are also rejected because separate replays cannot conserve their basis. Fee-free supported transfers retain acquisition basis; open-position quantities and pool averages are frozen at the report cutoff, independently of the report start date. This does not enable production Austrian per-wallet pooling.
 * [Output generators](https://github.com/eprbell/rp2/blob/main/docs/output_files.md):
   * [rp2_full_report](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#rp2-full-report-transparent-computation): comprehensive report (valid for any country), with complete transaction history, lot relationships/fractions and computation details;
   * [tax_report_us](https://github.com/eprbell/rp2/blob/main/docs/output_files.md#tax-report-us-advisor-friendly-report): tax report meant to be read by tax preparers (in the format of form 8949);
