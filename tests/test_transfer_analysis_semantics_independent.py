@@ -13,14 +13,16 @@
 # limitations under the License.
 
 import unittest
-
 from typing import List
 
+from transaction_processing_common import (
+    InTransactionDescriptor,
+    IntraTransactionDescriptor,
+    OutTransactionDescriptor,
+)
+from transfer_analysis_common import AbstractTransferAnalysis, _Test
+
 from rp2.in_transaction import Account
-
-from transaction_processing_common import InTransactionDescriptor, OutTransactionDescriptor, IntraTransactionDescriptor
-from transfer_analysis_common import _Test, AbstractTransferAnalysis
-
 
 
 # These tests are independent of the accounting method, so they are repeated for all accounting methods.
@@ -133,8 +135,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
             _Test(
                 # This test is from the discussion at https://github.com/eprbell/rp2/issues/135#issuecomment-2558165460
                 description=(
-                    "Transfer more than is available at timestamp 3 (even though funds with earlier "
-                    "cost_basis_timestamp will be available at timestamp 4)"
+                    "Transfer more than is available at timestamp 3 (even though funds with earlier " "cost_basis_timestamp will be available at timestamp 4)"
                 ),
                 input=[
                     InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 10),
@@ -149,8 +150,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
             _Test(
                 # This test is from the discussion at https://github.com/eprbell/rp2/issues/135#issuecomment-2558165460
                 description=(
-                    "Sell more than is available at timestamp 3 (even though funds with earlier "
-                    "cost_basis_timestamp will be available at timestamp 4)"
+                    "Sell more than is available at timestamp 3 (even though funds with earlier " "cost_basis_timestamp will be available at timestamp 4)"
                 ),
                 input=[
                     InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 10),
@@ -364,7 +364,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                         IntraTransactionDescriptor("4", 4, 4, "Coinbase", "Bob", "Coinbase", "Bob", 140, 10, 9),
                     ],
                 },
-                want_amounts={Account(exchange='Coinbase', holder='Bob'): {'1': 10}},
+                want_amounts={Account(exchange="Coinbase", holder="Bob"): {"1": 10}},
                 want_error="",
             ),
             _Test(
@@ -379,7 +379,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     IntraTransactionDescriptor("5", 5, 5, "Coinbase", "Bob", "Coinbase", "Bob", 150, 12, 12),
                     IntraTransactionDescriptor("6", 6, 6, "Coinbase", "Bob", "Coinbase", "Bob", 150, 14, 14),
                 ],
-                want_amounts={Account(exchange='Coinbase', holder='Bob'): {'1': 8, '2': 4, '3': 2}},
+                want_amounts={Account(exchange="Coinbase", holder="Bob"): {"1": 8, "2": 4, "3": 2}},
                 want_per_wallet_transactions={
                     Account("Coinbase", "Bob"): [
                         InTransactionDescriptor("1", 1, 1, "Coinbase", "Bob", 110, 8),
@@ -447,9 +447,9 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 1},
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 2},
-                    Account(exchange='BlockFi', holder='Bob'): {}
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 1},
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 2},
+                    Account(exchange="BlockFi", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -489,9 +489,9 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 7},
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 2},
-                    Account(exchange='BlockFi', holder='Bob'): {'3/-2': 1}
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 7},
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 2},
+                    Account(exchange="BlockFi", holder="Bob"): {"3/-2": 1},
                 },
                 want_error="",
             ),
@@ -541,9 +541,9 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 2},
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0},
-                    Account(exchange='BlockFi', holder='Bob'): {'3/-2': 1}
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 2},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0},
+                    Account(exchange="BlockFi", holder="Bob"): {"3/-2": 1},
                 },
                 want_error="",
             ),
@@ -592,9 +592,10 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='BlockFi', holder='Bob'): {'3/-2': 1},
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 2},
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0}                },
+                    Account(exchange="BlockFi", holder="Bob"): {"3/-2": 1},
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 2},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0},
+                },
                 want_error="",
             ),
             _Test(
@@ -638,8 +639,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 10},
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0},
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 10},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0},
                 },
                 want_error="",
             ),
@@ -685,10 +686,7 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                         IntraTransactionDescriptor("3", 3, 3, "Kraken", "Bob", "Coinbase", "Bob", 130, 10, 10),
                     ],
                 },
-                want_amounts={
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 0},
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 10}
-                },
+                want_amounts={Account(exchange="Kraken", holder="Bob"): {"2/-1": 0}, Account(exchange="Coinbase", holder="Bob"): {"1": 10}},
                 want_error="",
             ),
             _Test(
@@ -736,8 +734,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 5},
-                    Account(exchange='Kraken', holder='Bob'): {'2/-1': 0},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 5},
+                    Account(exchange="Kraken", holder="Bob"): {"2/-1": 0},
                 },
                 want_error="",
             ),

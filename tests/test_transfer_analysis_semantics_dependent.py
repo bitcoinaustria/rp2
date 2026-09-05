@@ -15,17 +15,20 @@
 # pylint: disable=too-many-lines
 
 import unittest
-
 from typing import List
+
+from transaction_processing_common import (
+    InTransactionDescriptor,
+    IntraTransactionDescriptor,
+    OutTransactionDescriptor,
+)
+from transfer_analysis_common import AbstractTransferAnalysis, _Test
 
 from rp2.in_transaction import Account
 from rp2.plugin.accounting_method.fifo import AccountingMethod as AccountingMethodFIFO
-from rp2.plugin.accounting_method.lifo import AccountingMethod as AccountingMethodLIFO
 from rp2.plugin.accounting_method.hifo import AccountingMethod as AccountingMethodHIFO
+from rp2.plugin.accounting_method.lifo import AccountingMethod as AccountingMethodLIFO
 from rp2.plugin.accounting_method.lofo import AccountingMethod as AccountingMethodLOFO
-
-from transaction_processing_common import InTransactionDescriptor, OutTransactionDescriptor, IntraTransactionDescriptor
-from transfer_analysis_common import _Test, AbstractTransferAnalysis
 
 
 # These tests are dependent on transfer semantics, so they are not run for all accounting methods.
@@ -57,8 +60,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '3': 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "3": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -87,8 +90,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Coinbase', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Coinbase", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -117,8 +120,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Kraken', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Kraken", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -144,8 +147,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Coinbase', holder='Alice'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Coinbase", holder="Alice"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -171,8 +174,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -198,8 +201,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {"1": 0, "2": 2},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 2},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -228,8 +231,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 1},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 5},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 1},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 5},
                 },
                 want_error="",
             ),
@@ -424,26 +427,17 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                 want_amounts={
                     # TODO: why is CB transaction 1 at 0 and the other ones at 6? Shouldn't the first 3 be at 6 and the last at 0 with FIFO?
                     # Also check how this changes with the other accounting methods.
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 6, '3': 6, '4': 6},
-                    Account(exchange='Kraken', holder='Bob'): {
-                        '10/-8': 0,
-                        '5/-1': 0,
-                        '6/-2': 0,
-                        '6/-3': 0,
-                        '7/-4': 0,
-                        '8/-5': 0,
-                        '9/-6': 0,
-                        '9/-7': 0
-                    },
-                    Account(exchange='BlockFi', holder='Bob'): {
-                        '11/-10': 0,
-                        '11/-11': 0,
-                        '11/-12': 0,
-                        '11/-9': 0,
-                        '12/-13': 0,
-                        '12/-14': 0,
-                        '12/-15': 0,
-                        '12/-16': 0
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 6, "3": 6, "4": 6},
+                    Account(exchange="Kraken", holder="Bob"): {"10/-8": 0, "5/-1": 0, "6/-2": 0, "6/-3": 0, "7/-4": 0, "8/-5": 0, "9/-6": 0, "9/-7": 0},
+                    Account(exchange="BlockFi", holder="Bob"): {
+                        "11/-10": 0,
+                        "11/-11": 0,
+                        "11/-12": 0,
+                        "11/-9": 0,
+                        "12/-13": 0,
+                        "12/-14": 0,
+                        "12/-15": 0,
+                        "12/-16": 0,
                     },
                 },
                 want_error="",
@@ -479,8 +473,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '3': 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "3": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -511,8 +505,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Coinbase', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Coinbase", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -543,8 +537,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Kraken', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Kraken", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -570,8 +564,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Coinbase', holder='Alice'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Coinbase", holder="Alice"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -597,8 +591,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -624,8 +618,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {"1": 2, "2": 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 2, "2": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -648,14 +642,14 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                     Account("Kraken", "Bob"): [
                         InTransactionDescriptor("3/-1", 3, -1, "Kraken", "Bob", 110, 3, from_lot_unique_id="1", cost_basis_day=1),
-                        InTransactionDescriptor("2", 2, 2, "Kraken", "Bob", 120, 10, to_lot_unique_ids={Account(exchange='Coinbase', holder='Bob'): ["4/-2"]}),
+                        InTransactionDescriptor("2", 2, 2, "Kraken", "Bob", 120, 10, to_lot_unique_ids={Account(exchange="Coinbase", holder="Bob"): ["4/-2"]}),
                         IntraTransactionDescriptor("4", 4, 4, "Kraken", "Bob", "Coinbase", "Bob", 140, 2, 1),
                         OutTransactionDescriptor("5", 5, 5, "Kraken", "Bob", 150, 2, 1),
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 2, '4/-2': 0},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 5},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 2, "4/-2": 0},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 5},
                 },
                 want_error="",
             ),
@@ -848,27 +842,18 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='BlockFi', holder='Bob'): {
-                        '11/-10': 0,
-                        '11/-11': 0,
-                        '11/-12': 0,
-                        '11/-9': 0,
-                        '12/-13': 0,
-                        '12/-14': 0,
-                        '12/-15': 0,
-                        '12/-16': 0
+                    Account(exchange="BlockFi", holder="Bob"): {
+                        "11/-10": 0,
+                        "11/-11": 0,
+                        "11/-12": 0,
+                        "11/-9": 0,
+                        "12/-13": 0,
+                        "12/-14": 0,
+                        "12/-15": 0,
+                        "12/-16": 0,
                     },
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6, '2': 6, '3': 6, '4': 0},
-                    Account(exchange='Kraken', holder='Bob'): {
-                        '10/-8': 0,
-                        '5/-1': 0,
-                        '6/-2': 0,
-                        '6/-3': 0,
-                        '7/-4': 0,
-                        '8/-5': 0,
-                        '9/-6': 0,
-                        '9/-7': 0
-                    },
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6, "2": 6, "3": 6, "4": 0},
+                    Account(exchange="Kraken", holder="Bob"): {"10/-8": 0, "5/-1": 0, "6/-2": 0, "6/-3": 0, "7/-4": 0, "8/-5": 0, "9/-6": 0, "9/-7": 0},
                 },
                 want_error="",
             ),
@@ -903,8 +888,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '3': 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "3": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -935,8 +920,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Coinbase', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Coinbase", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -967,8 +952,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Kraken', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Kraken", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -994,8 +979,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Coinbase', holder='Alice'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Coinbase", holder="Alice"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -1021,8 +1006,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 3},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 3},
                 },
                 want_error="",
             ),
@@ -1048,8 +1033,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {"1": 2, "2": 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 2, "2": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -1072,14 +1057,14 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                     Account("Kraken", "Bob"): [
                         InTransactionDescriptor("3/-1", 3, -1, "Kraken", "Bob", 110, 3, from_lot_unique_id="1", cost_basis_day=1),
-                        InTransactionDescriptor("2", 2, 2, "Kraken", "Bob", 120, 10, to_lot_unique_ids={Account(exchange='Coinbase', holder='Bob'): ["4/-2"]}),
+                        InTransactionDescriptor("2", 2, 2, "Kraken", "Bob", 120, 10, to_lot_unique_ids={Account(exchange="Coinbase", holder="Bob"): ["4/-2"]}),
                         IntraTransactionDescriptor("4", 4, 4, "Kraken", "Bob", "Coinbase", "Bob", 140, 2, 1),
                         OutTransactionDescriptor("5", 5, 5, "Kraken", "Bob", 150, 2, 1),
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 2, '4/-2': 0},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 5},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 2, "4/-2": 0},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 5},
                 },
                 want_error="",
             ),
@@ -1273,27 +1258,18 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                 },
                 want_amounts={
                     # TODO: why is transaction 1 at 0 and the other at 6? Shouldn't the first 3 be at 6 and the last at 0?
-                    Account(exchange='BlockFi', holder='Bob'): {
-                        '11/-10': 0,
-                        '11/-11': 0,
-                        '11/-12': 0,
-                        '11/-9': 0,
-                        '12/-13': 0,
-                        '12/-14': 0,
-                        '12/-15': 0,
-                        '12/-16': 0
+                    Account(exchange="BlockFi", holder="Bob"): {
+                        "11/-10": 0,
+                        "11/-11": 0,
+                        "11/-12": 0,
+                        "11/-9": 0,
+                        "12/-13": 0,
+                        "12/-14": 0,
+                        "12/-15": 0,
+                        "12/-16": 0,
                     },
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 6, '2': 6, '3': 6, '4': 0},
-                    Account(exchange='Kraken', holder='Bob'): {
-                        '10/-8': 0,
-                        '5/-1': 0,
-                        '6/-2': 0,
-                        '6/-3': 0,
-                        '7/-4': 0,
-                        '8/-5': 0,
-                        '9/-6': 0,
-                        '9/-7': 0
-                    },
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 6, "2": 6, "3": 6, "4": 0},
+                    Account(exchange="Kraken", holder="Bob"): {"10/-8": 0, "5/-1": 0, "6/-2": 0, "6/-3": 0, "7/-4": 0, "8/-5": 0, "9/-6": 0, "9/-7": 0},
                 },
                 want_error="",
             ),
@@ -1328,8 +1304,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '3': 0},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "3": 0},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -1358,8 +1334,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Coinbase', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Coinbase", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -1388,8 +1364,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 0},
-                    Account(exchange='Kraken', holder='Alice'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 0},
+                    Account(exchange="Kraken", holder="Alice"): {},
                 },
                 want_error="",
             ),
@@ -1418,8 +1394,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 9},
-                    Account(exchange='Coinbase', holder='Alice'): {'2': 6, '3/-1': 0},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 9},
+                    Account(exchange="Coinbase", holder="Alice"): {"2": 6, "3/-1": 0},
                 },
                 want_error="",
             ),
@@ -1448,8 +1424,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 9},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 6, '3/-1': 0},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 9},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 6, "3/-1": 0},
                 },
                 want_error="",
             ),
@@ -1475,8 +1451,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {"1": 0, "2": 2},
-                    Account(exchange='Kraken', holder='Bob'): {},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 2},
+                    Account(exchange="Kraken", holder="Bob"): {},
                 },
                 want_error="",
             ),
@@ -1504,8 +1480,8 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 2},
-                    Account(exchange='Kraken', holder='Bob'): {'2': 8, '3/-1': 0},
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 2},
+                    Account(exchange="Kraken", holder="Bob"): {"2": 8, "3/-1": 0},
                 },
                 want_error="",
             ),
@@ -1698,26 +1674,17 @@ class TestTransferAnalysis(AbstractTransferAnalysis):
                     ],
                 },
                 want_amounts={
-                    Account(exchange='Coinbase', holder='Bob'): {'1': 0, '2': 6, '3': 6, '4': 6},
-                    Account(exchange='Kraken', holder='Bob'): {
-                        '10/-8': 0,
-                        '5/-1': 0,
-                        '6/-2': 0,
-                        '6/-3': 0,
-                        '7/-4': 0,
-                        '8/-5': 0,
-                        '9/-6': 0,
-                        '9/-7': 0
-                    },
-                    Account(exchange='BlockFi', holder='Bob'): {
-                        '11/-10': 0,
-                        '11/-11': 0,
-                        '11/-12': 0,
-                        '11/-9': 0,
-                        '12/-13': 0,
-                        '12/-14': 0,
-                        '12/-15': 0,
-                        '12/-16': 0
+                    Account(exchange="Coinbase", holder="Bob"): {"1": 0, "2": 6, "3": 6, "4": 6},
+                    Account(exchange="Kraken", holder="Bob"): {"10/-8": 0, "5/-1": 0, "6/-2": 0, "6/-3": 0, "7/-4": 0, "8/-5": 0, "9/-6": 0, "9/-7": 0},
+                    Account(exchange="BlockFi", holder="Bob"): {
+                        "11/-10": 0,
+                        "11/-11": 0,
+                        "11/-12": 0,
+                        "11/-9": 0,
+                        "12/-13": 0,
+                        "12/-14": 0,
+                        "12/-15": 0,
+                        "12/-16": 0,
                     },
                 },
                 want_error="",

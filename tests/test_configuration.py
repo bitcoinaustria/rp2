@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import unittest
 from configparser import ConfigParser
 from datetime import datetime
-from tempfile import NamedTemporaryFile
-from typing import Optional
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from dateutil.tz import tzoffset, tzutc
 
@@ -42,15 +41,11 @@ class TestConfiguration(unittest.TestCase):  # pylint: disable=too-many-public-m
 
     @staticmethod
     def _test_config(config: ConfigParser) -> Configuration:
-        result: Optional[Configuration] = None
-        with NamedTemporaryFile("w", delete=False) as temporary_file:
-            config.write(temporary_file)
-            temporary_file.flush()
-
-            result = Configuration(temporary_file.name, TestConfiguration._country)
-        os.remove(temporary_file.name)
-
-        return result
+        with TemporaryDirectory() as temporary_directory:
+            configuration_path = Path(temporary_directory) / "configuration.ini"
+            with configuration_path.open("w", encoding="utf-8") as configuration_file:
+                config.write(configuration_file)
+            return Configuration(str(configuration_path), TestConfiguration._country)
 
     def test_missing_required_header_column(self) -> None:
         # Removing a required column from a header section must raise a clear RP2ValueError naming the
