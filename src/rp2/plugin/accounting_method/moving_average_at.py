@@ -41,8 +41,8 @@ from rp2.rp2_error import RP2TypeError, RP2ValueError
 # Austrian-specific moving-average method. Partitions lots into Altvermögen and Neuvermögen
 # sub-pools by acquisition-date cutoff (2021-03-01 Europe/Vienna), with an explicit
 # `at_regime=alt|neu` marker in `notes` overriding the date inference. Altvermögen disposals
-# consume alt lots in FIFO order at their own cost basis (so the Spekulationsfrist can be
-# derived in the report from `taxable_event.timestamp - acquired_lot.timestamp`). Neuvermögen
+# consume alt lots in FIFO order at their own cost basis; `classify_disposal` applies the
+# calendar-year Spekulationsfrist using the original acquisition date. Neuvermögen
 # disposals consume neu lots in FIFO order for the audit trail, but the cost basis surfaces
 # as the Neuvermögen pool's running weighted average (gleitender Durchschnittspreis per
 # § 2 KryptowährungsVO).
@@ -154,27 +154,20 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
             # silently force zero gain without Kassiber being able to pair the incoming leg.
             if swap_link_id(taxable_event) is None:
                 raise RP2ValueError(
-                    f"Empty `at_swap_link=` marker on disposal. The id is required so Kassiber can "
+                    f"Empty `at_swap_link=` marker on disposal. The id is required so RP2 can "
                     f"pair the incoming leg and carry the basis. Event: {taxable_event}"
                 )
-            # Swap neutrality is the § 27b Abs 3 Z 2 EStG carveout for crypto-to-crypto *sales*;
-            # tagging a GIFT/DONATE/FEE/LOST/STAKING disposal with `at_swap_link=` would silently
-            # zero out a disposal that has no pairable incoming leg. Cross-asset pairing stays
-            # Kassiber's responsibility (per AGENTS.md), but the same-event kind check is cheap
-            # and rejects the nonsensical combinations before they produce a zero-gain row.
+            # Swap neutrality applies only to SELL. The AT country hook validates the
+            # cross-asset pair; keep this guard for callers of the per-asset engine too.
             if taxable_event.transaction_type != TransactionType.SELL:
                 raise RP2ValueError(
                     f"`at_swap_link=` marker on non-SELL disposal (transaction_type="
                     f"{taxable_event.transaction_type.name}). Crypto-to-crypto swap neutrality only "
                     f"applies to SELL-type disposals. Event: {taxable_event}"
                 )
-            # Tax-neutral Neu swap: override cost basis with the disposal's fee-aware per-unit
-            # taxable proceeds so the outgoing GainLoss stays exactly at zero gain even when
-            # crypto_balance_change includes a fee. The incoming leg is populated by Kassiber
-            # with the carried basis (paired via at_swap_link=<id> and seeded onto the
-            # incoming InTransaction as fiat_in_with_fee = crypto_out_no_fee * pool_average —
-            # the fee portion is absorbed as expense, consistent with depleting the Neu pool
-            # by crypto_out_with_fee * pool_average here).
+            # Report zero gain using fee-aware proceeds, but expose the pool average
+            # separately so compute_native_at_tax can carry the non-fee basis to the
+            # incoming lot. Kassiber supplies both legs at market value.
             swap_unit_cost_basis: RP2Decimal = taxable_event.fiat_taxable_amount / taxable_event.crypto_balance_change
             return AcquiredLotAndAmount(
                 acquired_lot=selected,

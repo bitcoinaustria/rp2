@@ -135,7 +135,7 @@ The RP2 source tree is organized as follows:
 * `setup.cfg`: static packaging configuration file;
 * `setup.py`: dynamic packaging configuration file;
 * `src/rp2`: RP2 code, including classes for transactions, gains, tax engine, balances, logger, ODS parser, etc.;
-* `src/locales`: RP2 localization data;
+* `src/rp2/locales`: RP2 localization data;
 * `src/rp2/plugin/accounting_method/`: accounting method plugins;
 * `src/rp2/plugin/country/`: country plugins/entry points;
 * `src/rp2/plugin/report/`: report generator plugins;
@@ -236,7 +236,7 @@ from rp2.gain_loss_set import GainLossSet
 ```
 * Optionally, RP2 provides a logger facility:
 ```
-from logger import LOGGER
+from rp2.logger import LOGGER
 ```
 * Add a class named `Generator`, deriving from `AbstractReportGenerator` or `AbstractODSGenerator` (if generating a .ods file):
 ```
@@ -247,7 +247,7 @@ class Generator(AbstractReportGenerator):
     def generate(
         self,
         country: AbstractCountry,
-        accounting_method: str,
+        years_2_accounting_method_names: Dict[int, str],
         asset_to_computed_data: Dict[str, ComputedData],
         output_dir_path: str,
         output_file_prefix: str,
@@ -258,7 +258,7 @@ class Generator(AbstractReportGenerator):
 ```
 * write the body of the `generate()`. The parameters are:
   * `country`: instance of [AbstractCountry](src/rp2/abstract_country.py); see [Adding Support for a New Country](#adding-support-for-a-new-country) for more details;
-  * `accounting_method`: string name of the accounting method used to compute the taxes. This is for purposes of generation only (it can be emitted in the output);
+  * `years_2_accounting_method_names`: mapping from start year to accounting method name, so reports can describe method changes over time;
   * `asset_to_computed_data`: dictionary mapping user assets (i.e. cryptocurrency) to the computed tax data for that asset. For each user asset there is one instance of [ComputedData](src/rp2/computed_data.py);
   * `output_dir_path`: directory in which to write the output;
   * `output_file_prefix`: prefix to be prepended to the output file name;
@@ -277,7 +277,7 @@ Accounting method plugins modify the behavior of the tax engine. They pair in/ou
 
 In RP2 there are three accounting method flavors:
 * Chronological: these methods sort the in-lots based on their chronological order and have O(n) complexity. FIFO is an example of this type.
-* Feature-dependent: these methods sort in-lots according to a specific criterion that depends on the features of the current out-lot, such as spot price or date of sale, and have O(n*log(n)) complexity. HIFO (Highest-Index-First-Out) is an example of this type.
+* Feature-dependent: these methods sort in-lots according to a specific criterion that depends on the features of the current out-lot, such as spot price or date of sale, and have O(n*log(n)) complexity. HIFO (Highest-In-First-Out) is an example of this type.
 * Pool-based: these methods pair lots chronologically (for the audit trail) but override the per-disposal cost basis with a running weighted average over a pool of lots. The running average is maintained on the candidates container. [moving_average](src/rp2/plugin/accounting_method/moving_average.py) is an example of this type.
 
 The RP2 accounting engine automatically provides the following common functionality for all plugins:
@@ -347,7 +347,7 @@ Accounting method plugins are discovered by RP2 at runtime and they must adhere 
     ```
     class AccountingMethod(AbstractChronologicalAccountingMethod):
     ```
-  * Override `create_lot_candidates()` to return a `PoolAcquiredLotCandidates` (instead of the default `ChronologicalAcquiredLotCandidates`). This container owns one `(qty, cost_total)` tuple per free-form pool id — the method reads/writes pool state via `container.get_pool(pool_id)` and `container.set_pool(pool_id, qty, cost_total)`, and tracks how far it has synced via `container.last_synced_index` / `container.set_last_synced_index(n)`. State lives with the container, so it is naturally garbage-collected and cannot be aliased across runs.
+  * Override `create_lot_candidates()` to return a `PoolAcquiredLotCandidates` (instead of the default `ChronologicalAcquiredLotCandidates`). This container owns one `(qty, cost_total)` tuple per free-form pool id — the method reads/writes pool state via `container.get_pool(pool_id)` and `container.set_pool(pool_id, qty, cost_total)`, and tracks how far it has synced via `container.get_pool_last_synced_index(pool_id)` / `container.set_pool_last_synced_index(pool_id, n)`. State lives with the container, so it is naturally garbage-collected and cannot be aliased across runs.
   * Override `seek_non_exhausted_acquired_lot()`: the method still pairs a real acquired lot (FIFO for the audit trail), but returns an `AcquiredLotAndAmount` with `unit_cost_basis_override` set to the method-specific basis for the disposal. For ordinary moving-average disposals this is the running pool average at the time of the disposal; regime-aware variants can choose another override for specific cases (for example, `moving_average_at` uses fee-aware taxable proceeds on swap-neutral outgoing legs). The lot's own `fiat_in_with_fee` is retained for other consumers; `GainLoss.fiat_cost_basis` honors the override.
   * Pool identity is the method's concern. The generic `moving_average` plugin uses a single conventional pool id; regime-aware methods (e.g. `moving_average_at`) partition into multiple pool ids based on per-lot conventions. The container is pool-id-agnostic.
   * Running-average invariant: depleting `amount * pool_average` from `cost_total` while depleting `amount` from `qty` leaves the average unchanged by construction. This means disposals do not move the running average; only acquisitions do. Rely on this when reasoning about multi-disposal sequences.

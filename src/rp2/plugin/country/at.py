@@ -364,8 +364,8 @@ class AT(AbstractCountry):
 
     # Measured in days. Austria has no generic long-term threshold: Neuvermögen disposals
     # are taxed at 27.5% regardless of holding period, and Altvermögen's 1-year
-    # Spekulationsfrist applies only to pre-2021-03-01 lots. Regime-specific holding-period
-    # handling belongs inside the Austrian accounting method (Phase 3+), not here.
+    # Spekulationsfrist applies only to pre-2021-03-01 lots. classify_disposal handles
+    # the regime-specific calendar-year boundary.
     def get_long_term_capital_gain_period(self) -> int:
         return sys.maxsize
 
@@ -387,7 +387,7 @@ class AT(AbstractCountry):
     # + `AtDisposalCategory` to bucket rows without re-implementing Austrian tax semantics.
     # `rp2_full_report` is intentionally excluded: its long/short split relies on
     # `get_long_term_capital_gain_period()` which we disable (sys.maxsize), so it would emit
-    # a misleading "all short-term" report. Users can still request it explicitly via `-g`.
+    # a misleading "all short-term" report. `-g` selects the generation language.
     def get_report_generators(self) -> Set[str]:
         return {"open_positions"}
 

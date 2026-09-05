@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import unittest
 from configparser import ConfigParser
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from rp2.configuration import Configuration, Keyword
 from rp2.plugin.accounting_method.lifo import AccountingMethod as LifoAccountingMethod
@@ -34,12 +34,11 @@ class TestRP2Main(unittest.TestCase):
 
     @staticmethod
     def _create_configuration(config: ConfigParser) -> Configuration:
-        with NamedTemporaryFile("w", delete=False) as temporary_file:
-            config.write(temporary_file)
-            temporary_file.flush()
-            configuration = Configuration(temporary_file.name, TestRP2Main._country)
-        os.remove(temporary_file.name)
-        return configuration
+        with TemporaryDirectory() as temporary_directory:
+            configuration_path = Path(temporary_directory) / "configuration.ini"
+            with configuration_path.open("w", encoding="utf-8") as configuration_file:
+                config.write(configuration_file)
+            return Configuration(str(configuration_path), TestRP2Main._country)
 
     @staticmethod
     def _base_config() -> ConfigParser:
