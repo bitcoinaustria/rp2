@@ -42,6 +42,7 @@ class InputData:
         in_transaction_2_actual_amount: Optional[Dict[InTransaction, RP2Decimal]] = None,
         from_date: date = MIN_DATE,
         to_date: date = MAX_DATE,
+        in_transaction_2_fiat_in_with_fee_override: Optional[Dict[InTransaction, RP2Decimal]] = None,
     ):
         self.__asset: str = Configuration.type_check_string("asset", asset)
         self.__unfiltered_in_transaction_set: TransactionSet = TransactionSet.type_check(
@@ -56,6 +57,14 @@ class InputData:
         self.__in_transaction_2_actual_amount: Dict[InTransaction, RP2Decimal] = (
             in_transaction_2_actual_amount if in_transaction_2_actual_amount is not None else {}
         )
+        self.__in_transaction_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = (
+            dict(in_transaction_2_fiat_in_with_fee_override) if isinstance(in_transaction_2_fiat_in_with_fee_override, dict) else {}
+        )
+        if in_transaction_2_fiat_in_with_fee_override is not None and not isinstance(in_transaction_2_fiat_in_with_fee_override, dict):
+            raise RP2TypeError("Parameter 'in_transaction_2_fiat_in_with_fee_override' is not of type dict")
+        for lot, basis in self.__in_transaction_2_fiat_in_with_fee_override.items():
+            InTransaction.type_check("acquired_lot", lot)
+            Configuration.type_check_positive_decimal("fiat_in_with_fee", basis)
         if not isinstance(from_date, date):
             raise RP2TypeError("Parameter 'from_date' is not of type date")
         if not isinstance(to_date, date):
@@ -151,6 +160,10 @@ class InputData:
     @property
     def in_transaction_2_actual_amount(self) -> Dict[InTransaction, RP2Decimal]:
         return self.__in_transaction_2_actual_amount
+
+    @property
+    def in_transaction_2_fiat_in_with_fee_override(self) -> Dict[InTransaction, RP2Decimal]:
+        return self.__in_transaction_2_fiat_in_with_fee_override
 
     def is_intra_backed_artificial_in_transaction(self, in_transaction: InTransaction) -> bool:
         InTransaction.type_check("in_transaction", in_transaction)

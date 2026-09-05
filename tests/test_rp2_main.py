@@ -19,8 +19,14 @@ from tempfile import NamedTemporaryFile
 
 from rp2.configuration import Configuration, Keyword
 from rp2.plugin.accounting_method.lifo import AccountingMethod as LifoAccountingMethod
+from rp2.plugin.country.at import AT
 from rp2.plugin.country.us import US
-from rp2.rp2_main import _resolve_application_method, _resolve_transfer_semantics
+from rp2.rp2_error import RP2ValueError
+from rp2.rp2_main import (
+    _resolve_application_method,
+    _resolve_transfer_semantics,
+    _validate_country_computation_application,
+)
 
 
 class TestRP2Main(unittest.TestCase):
@@ -59,6 +65,13 @@ class TestRP2Main(unittest.TestCase):
         configuration = self._create_configuration(config)
         with self.assertRaises(SystemExit):
             _resolve_transfer_semantics(configuration, {2020: "fifo"})
+
+    def test_per_wallet_rejects_country_wide_computation_hook(self) -> None:
+        with self.assertRaisesRegex(RP2ValueError, r"would bypass the country hook"):
+            _validate_country_computation_application(AT(), use_per_wallet=True)
+
+    def test_per_wallet_accepts_country_without_computation_hook(self) -> None:
+        _validate_country_computation_application(US(), use_per_wallet=True)
 
 
 if __name__ == "__main__":

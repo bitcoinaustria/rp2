@@ -245,7 +245,7 @@ class Generator(AbstractODSGenerator):
             for current_transaction in computed_data.open_position_in_transaction_set:
                 in_transaction = cast(InTransaction, current_transaction)
                 actual_amount: Optional[RP2Decimal] = computed_data.get_in_transaction_actual_amount(in_transaction)
-                effective_fiat_in_with_fee: RP2Decimal = computed_data.get_in_transaction_fiat_in_with_fee(in_transaction)
+                effective_fiat_in_with_fee: RP2Decimal = computed_data.get_open_position_in_transaction_fiat_in_with_fee(in_transaction)
                 if actual_amount is not None:
                     transaction_cost_basis = (effective_fiat_in_with_fee * actual_amount) / in_transaction.crypto_in
                 else:

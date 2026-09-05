@@ -36,9 +36,12 @@ class PerWalletTransactions:
         # Transfer semantics: method to decide which lot to pick when transferring funds.
         self.__transfer_semantics = transfer_semantics
         self.__acquired_lot_2_actual_amount: Dict[InTransaction, RP2Decimal] = {}
+        self.__acquired_lot_2_fiat_in_with_fee_override: Dict[InTransaction, RP2Decimal] = {}
         acquired_lot_list: List[InTransaction] = []
         self.__in_transactions: AbstractAcquiredLotCandidates = transfer_semantics.create_lot_candidates(
-            acquired_lot_list=acquired_lot_list, acquired_lot_2_partial_amount=self.__acquired_lot_2_actual_amount
+            acquired_lot_list=acquired_lot_list,
+            acquired_lot_2_partial_amount=self.__acquired_lot_2_actual_amount,
+            acquired_lot_2_fiat_in_with_fee_override=self.__acquired_lot_2_fiat_in_with_fee_override,
         )
         # These are the unfiltered per-wallet transaction sets: InputData applies the report window
         # afterwards via from_date / to_date.
@@ -56,6 +59,10 @@ class PerWalletTransactions:
     @property
     def acquired_lot_2_actual_amount(self) -> Dict[InTransaction, RP2Decimal]:
         return self.__acquired_lot_2_actual_amount
+
+    @property
+    def acquired_lot_2_fiat_in_with_fee_override(self) -> Dict[InTransaction, RP2Decimal]:
+        return self.__acquired_lot_2_fiat_in_with_fee_override
 
     @property
     def in_transactions(self) -> AbstractAcquiredLotCandidates:
@@ -91,9 +98,38 @@ class TransferAnalyzer:
         # the local transfer analysis (which is a throwaway operation).
         self.__use_local_artificial_ids = Configuration.type_check_bool("use_local_artificial_ids", use_local_artificial_ids)
         self.__local_artificial_id_counter = -1
+        self.__open_position_actual_amounts: Dict[Account, Dict[InTransaction, RP2Decimal]] = {}
+        self.__open_position_basis: Dict[Account, Dict[InTransaction, RP2Decimal]] = {}
+
+    def get_open_position_actual_amounts(self, account: Account) -> Dict[InTransaction, RP2Decimal]:
+        if not isinstance(account, Account):
+            raise RP2TypeError("Parameter 'account' is not of type Account")
+        return dict(self.__open_position_actual_amounts.get(account, {}))
+
+    def get_open_position_basis(self, account: Account) -> Dict[InTransaction, RP2Decimal]:
+        if not isinstance(account, Account):
+            raise RP2TypeError("Parameter 'account' is not of type Account")
+        return dict(self.__open_position_basis.get(account, {}))
+
+    def _snapshot_open_positions(self, wallets: Dict[Account, PerWalletTransactions]) -> None:
+        # Freeze before processing any post-cutoff evidence, using the same lot
+        # objects as the complete analysis. Full-history transfer pointers and
+        # acquisition inputs remain available without rewriting past holdings.
+        for account, wallet in wallets.items():
+            candidates = wallet.in_transactions
+            self.__open_position_actual_amounts[account] = {
+                lot: wallet.acquired_lot_2_actual_amount.get(lot, lot.crypto_in) for lot in candidates.acquired_lot_list
+            }
+            self.__open_position_basis[account] = self.__transfer_semantics.get_open_position_basis(candidates)
 
     # Utility function to create an artificial InTransaction modeling the "to" side of an IntraTransaction
-    def _create_to_in_transaction(self, from_in_transaction: InTransaction, transfer_transaction: IntraTransaction, amount: RP2Decimal) -> InTransaction:
+    def _create_to_in_transaction(
+        self,
+        from_in_lot_and_amount: AcquiredLotAndAmount,
+        transfer_transaction: IntraTransaction,
+        amount: RP2Decimal,
+    ) -> InTransaction:
+        from_in_transaction: InTransaction = from_in_lot_and_amount.acquired_lot
         artificial_id: int
         if self.__use_local_artificial_ids:
             artificial_id = self.__local_artificial_id_counter
@@ -101,10 +137,26 @@ class TransferAnalyzer:
         else:
             artificial_id = self.__configuration.get_new_artificial_id()
 
-        carried_fraction: RP2Decimal = amount / from_in_transaction.crypto_in
-        carried_fiat_in_no_fee: RP2Decimal = from_in_transaction.fiat_in_no_fee * carried_fraction
-        carried_fiat_fee: RP2Decimal = from_in_transaction.fiat_fee * carried_fraction
-        carried_fiat_in_with_fee: RP2Decimal = from_in_transaction.fiat_in_with_fee * carried_fraction
+        carried_spot_price: RP2Decimal
+        carried_fiat_in_no_fee: RP2Decimal
+        carried_fiat_fee: RP2Decimal
+        carried_fiat_in_with_fee: RP2Decimal
+        if from_in_lot_and_amount.unit_cost_basis_override is None:
+            carried_fraction: RP2Decimal = amount / from_in_transaction.crypto_in
+            carried_spot_price = from_in_transaction.spot_price
+            carried_fiat_in_no_fee = from_in_transaction.fiat_in_no_fee * carried_fraction
+            carried_fiat_fee = from_in_transaction.fiat_fee * carried_fraction
+            carried_fiat_in_with_fee = from_in_transaction.fiat_in_with_fee * carried_fraction
+        else:
+            # Pool methods surface the effective all-in basis as one unit value. Preserve that
+            # exact basis on the destination lot instead of copying the selected audit lot's
+            # historical fields. Acquisition-fee decomposition is intentionally zeroed because
+            # the pool average no longer identifies which historical fee supplied this fraction;
+            # the transfer's own crypto fee remains a separate taxable disposal on the source.
+            carried_spot_price = from_in_lot_and_amount.unit_cost_basis_override
+            carried_fiat_in_with_fee = carried_spot_price * amount
+            carried_fiat_in_no_fee = carried_fiat_in_with_fee
+            carried_fiat_fee = ZERO
 
         cost_basis_timestamp_string = from_in_transaction.cost_basis_timestamp.isoformat()
 
@@ -116,7 +168,7 @@ class TransferAnalyzer:
             holder=transfer_transaction.to_holder,
             transaction_type=self._to_transaction_type(from_in_transaction),
             crypto_in=amount,
-            spot_price=from_in_transaction.spot_price,
+            spot_price=carried_spot_price,
             fiat_in_no_fee=carried_fiat_in_no_fee,
             fiat_in_with_fee=carried_fiat_in_with_fee,
             fiat_fee=carried_fiat_fee,
@@ -165,6 +217,7 @@ class TransferAnalyzer:
             in_transaction_2_actual_amount=per_wallet_transactions.acquired_lot_2_actual_amount,
             from_date=universal_input_data.from_date,
             to_date=universal_input_data.to_date,
+            in_transaction_2_fiat_in_with_fee_override=per_wallet_transactions.acquired_lot_2_fiat_in_with_fee_override,
         )
         return result
 
@@ -187,9 +240,13 @@ class TransferAnalyzer:
         to_account = Account(transfer.to_exchange, transfer.to_holder)
         to_per_wallet_transactions = wallet_2_per_wallet_transactions[to_account]
         if transfer.is_self_transfer():
-            # Self transfer (loop): do nothing.
-            pass
-        elif self._is_transaction_cycle(current_in_lot_and_amount.acquired_lot, transfer):
+            # The principal returns to the same pool, while the fee remains consumed.
+            self.__transfer_semantics._restore_consumed_basis(  # pylint: disable=protected-access
+                from_per_wallet_transactions.in_transactions,
+                current_in_lot_and_amount,
+                remaining_amount,
+            )
+        elif remaining_amount > ZERO and self._is_transaction_cycle(current_in_lot_and_amount.acquired_lot, transfer):
             # Transaction cycle detected: the to_account has already been visited. Return the remaining amount to the start-of-cycle transaction.
             start_of_cycle: InTransaction = current_in_lot_and_amount.acquired_lot.originates_from[to_account]
             start_of_cycle_per_wallet_transactions = to_per_wallet_transactions
@@ -203,9 +260,14 @@ class TransferAnalyzer:
             start_of_cycle_per_wallet_transactions.in_transactions.reset_partial_amounts(
                 self.__transfer_semantics, {start_of_cycle: actual_amount + remaining_amount}
             )
-        else:
+            self.__transfer_semantics._restore_consumed_basis(  # pylint: disable=protected-access
+                start_of_cycle_per_wallet_transactions.in_transactions,
+                current_in_lot_and_amount,
+                remaining_amount,
+            )
+        elif remaining_amount > ZERO:
             # Normal case: create an artificial InTransaction for the remaining amount and add it to the to_per_wallet_transactions.
-            to_in_transaction = self._create_to_in_transaction(current_in_lot_and_amount.acquired_lot, transfer, remaining_amount)
+            to_in_transaction = self._create_to_in_transaction(current_in_lot_and_amount, transfer, remaining_amount)
             to_per_wallet_transactions.in_transactions.add_acquired_lot(to_in_transaction)
             to_per_wallet_transactions.in_transactions.set_to_index(len(to_per_wallet_transactions.in_transactions.acquired_lot_list) - 1)
         # Remove the remaining amount from the actual amount of the current in lot.
@@ -219,7 +281,11 @@ class TransferAnalyzer:
         all_transactions: TransactionSet = self.__universal_input_data.create_all_transaction_set(self.__configuration)
 
         wallet_2_per_wallet_transactions: Dict[Account, PerWalletTransactions] = {}
+        snapshot_taken = False
         for transaction in all_transactions:
+            if not snapshot_taken and transaction.timestamp.date() > self.__configuration.to_date:
+                self._snapshot_open_positions(wallet_2_per_wallet_transactions)
+                snapshot_taken = True
             if isinstance(transaction, InTransaction):
                 account = Account(transaction.exchange, transaction.holder)
                 per_wallet_transactions = wallet_2_per_wallet_transactions.setdefault(
@@ -227,6 +293,9 @@ class TransferAnalyzer:
                     PerWalletTransactions(self.__configuration, self.__universal_input_data.asset, self.__transfer_semantics),
                 )
                 per_wallet_transactions.in_transactions.add_acquired_lot(transaction)
+                input_basis = self.__universal_input_data.in_transaction_2_fiat_in_with_fee_override.get(transaction)
+                if input_basis is not None:
+                    per_wallet_transactions.in_transactions.set_fiat_in_with_fee(transaction, input_basis)
                 per_wallet_transactions.in_transactions.set_to_index(len(per_wallet_transactions.in_transactions.acquired_lot_list) - 1)
             elif isinstance(transaction, OutTransaction):
                 account = Account(transaction.exchange, transaction.holder)
@@ -241,7 +310,7 @@ class TransferAnalyzer:
                 fee = transaction.crypto_fee
                 while True:
                     current_in_lot_and_amount = self.__transfer_semantics.seek_non_exhausted_acquired_lot(
-                        per_wallet_transactions.in_transactions, transaction.crypto_out_with_fee
+                        per_wallet_transactions.in_transactions, amount_left_to_dispose_of + fee
                     )
                     if current_in_lot_and_amount is None:
                         raise RP2ValueError(
@@ -276,7 +345,7 @@ class TransferAnalyzer:
                 original_actual_amounts: Dict[InTransaction, RP2Decimal] = {}
                 while True:
                     current_in_lot_and_amount = self.__transfer_semantics.seek_non_exhausted_acquired_lot(
-                        from_per_wallet_transactions.in_transactions, transaction.crypto_received
+                        from_per_wallet_transactions.in_transactions, amount_left_to_transfer
                     )
                     if current_in_lot_and_amount is None:
                         raise RP2ValueError(
@@ -294,14 +363,10 @@ class TransferAnalyzer:
                         )
                         if transaction.is_self_transfer():
                             # The principal returns to the same wallet, so restore every touched lot.
-                            # NOTE: the crypto fee genuinely leaves the wallet, but we deliberately do
-                            # NOT deduct it from actual_amount here. The intra fee is realized as its
-                            # own taxable disposal by compute_tax against the *accounting method's* lot
-                            # selection, which the transfer-semantics pass cannot mirror per-lot for a
-                            # multi-lot transfer; deducting it from the transfer's last lot would make
-                            # open_positions' realized+open basis diverge from the original (see
-                            # CHANGELOG "Known limitations"). Reconciling intra fees in per-wallet
-                            # open_positions needs the broader per-wallet redesign.
+                            # The fee is realized independently by the tax engine. Transfer analysis
+                            # cannot allocate that fee to the same lot selection without becoming the
+                            # chronological accounting owner; per-wallet tax computation therefore
+                            # rejects fee-bearing intra-transactions before invoking this analyzer.
                             from_per_wallet_transactions.in_transactions.reset_partial_amounts(self.__transfer_semantics, original_actual_amounts)
                         break
                     self._process_remaining_transfer_amount(
@@ -314,6 +379,9 @@ class TransferAnalyzer:
                     amount_left_to_transfer -= current_in_lot_and_amount.amount
             else:
                 raise RP2ValueError(f"Internal error: invalid transaction class: {transaction}")
+
+        if not snapshot_taken:
+            self._snapshot_open_positions(wallet_2_per_wallet_transactions)
 
         # Convert per-wallet transactions to input_data.
         result: Dict[Account, InputData] = {}

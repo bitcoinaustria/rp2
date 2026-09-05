@@ -41,6 +41,7 @@ from rp2.localization import set_generation_language
 from rp2.logger import LOG_FILE, LOGGER, configure_logging
 from rp2.ods_parser import open_ods, parse_ods
 from rp2.per_wallet_tax_engine import compute_tax_per_wallet
+from rp2.rp2_error import RP2ValueError
 from rp2.tax_engine import compute_tax
 
 _VERSION: str = "1.7.2"
@@ -131,6 +132,7 @@ def _rp2_main_internal(country: AbstractCountry) -> None:  # pylint: disable=too
 
         application_method_name: str = _resolve_application_method(configuration)
         use_per_wallet: bool = application_method_name == "per_wallet"
+        _validate_country_computation_application(country, use_per_wallet)
         transfer_semantics: Optional[AbstractAccountingMethod] = None
         if use_per_wallet:
             transfer_semantics = _resolve_transfer_semantics(configuration, years_2_accounting_method_names)
@@ -297,6 +299,16 @@ def _resolve_application_method(configuration: Configuration) -> str:
         LOGGER.error("Year-scoped application method transitions are not supported yet: configure a single application method for the whole run. Exiting...")
         sys.exit(1)
     return next(iter(application_methods))
+
+
+def _validate_country_computation_application(country: AbstractCountry, use_per_wallet: bool) -> None:
+    AbstractCountry.type_check("country", country)
+    Configuration.type_check_bool("use_per_wallet", use_per_wallet)
+    if use_per_wallet and type(country).compute_tax_for_assets is not AbstractCountry.compute_tax_for_assets:
+        raise RP2ValueError(
+            f"Country {country.country_iso_code} defines country-wide tax computation, which is incompatible with "
+            "per_wallet application because that application would bypass the country hook. Use universal application."
+        )
 
 
 def _resolve_transfer_semantics(

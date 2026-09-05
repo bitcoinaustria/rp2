@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# pylint: disable=too-many-lines
+
 # Smoke tests for the per-wallet tax engine integration.
 #
 # The test fixture is synthesized so it is valid under both universal and per-wallet
@@ -32,7 +34,7 @@ from rp2.accounting_engine import AccountingEngine
 from rp2.computed_data import ComputedData
 from rp2.configuration import MIN_DATE, Configuration
 from rp2.gain_loss import GainLoss
-from rp2.in_transaction import InTransaction
+from rp2.in_transaction import Account, InTransaction
 from rp2.input_data import InputData
 from rp2.intra_transaction import IntraTransaction
 from rp2.out_transaction import OutTransaction
@@ -40,13 +42,18 @@ from rp2.per_wallet_tax_engine import compute_tax_per_wallet
 from rp2.plugin.accounting_method.fifo import AccountingMethod as FifoAccountingMethod
 from rp2.plugin.accounting_method.hifo import AccountingMethod as HifoAccountingMethod
 from rp2.plugin.accounting_method.lofo import AccountingMethod as LofoAccountingMethod
+from rp2.plugin.accounting_method.moving_average import (
+    AccountingMethod as MovingAverageAccountingMethod,
+)
 from rp2.plugin.country.us import US
 from rp2.rp2_decimal import RP2Decimal
+from rp2.rp2_error import RP2ValueError
 from rp2.tax_engine import compute_tax
 from rp2.transaction_set import TransactionSet
+from rp2.transfer_analyzer import TransferAnalyzer
 
 
-class TestPerWalletTaxEngine(unittest.TestCase):
+class TestPerWalletTaxEngine(unittest.TestCase):  # pylint: disable=too-many-public-methods
     _configuration: Configuration
     _accounting_engine: AccountingEngine
     _transfer_semantics: AbstractAccountingMethod
@@ -317,6 +324,518 @@ class TestPerWalletTaxEngine(unittest.TestCase):
         per_wallet_computed = compute_tax_per_wallet(self._configuration, self._accounting_engine, self._transfer_semantics, input_data)
         disposed = sum((g.crypto_amount for g in per_wallet_computed.gain_loss_set if isinstance(g, GainLoss)), RP2Decimal("0"))
         self.assertEqual(disposed, RP2Decimal("2.0"))
+
+    def test_per_wallet_transfer_carries_moving_average_basis(self) -> None:
+        input_data, _intra = self._moving_average_transfer_fixture(crypto_sent="1.5", crypto_received="1.5")
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+
+        computed = compute_tax_per_wallet(self._configuration, AccountingEngine(years_2_methods), method, input_data)
+
+        gain_losses: List[GainLoss] = [cast(GainLoss, entry) for entry in computed.gain_loss_set]
+        sale_gain_losses = [gain_loss for gain_loss in gain_losses if isinstance(gain_loss.taxable_event, OutTransaction)]
+        artificial_lots = [
+            cast(InTransaction, transaction) for transaction in computed.in_transaction_set if cast(InTransaction, transaction).from_lot is not None
+        ]
+        self.assertEqual(len(artificial_lots), 2)
+        self.assertEqual(sum((gain_loss.fiat_cost_basis for gain_loss in sale_gain_losses), RP2Decimal("0")), RP2Decimal("300"))
+        self.assertEqual(sum((gain_loss.fiat_gain for gain_loss in sale_gain_losses), RP2Decimal("0")), RP2Decimal("450"))
+        self.assertEqual(sum((lot.fiat_in_with_fee for lot in artificial_lots), RP2Decimal("0")), RP2Decimal("300"))
+        self.assertTrue(all(lot.fiat_fee == RP2Decimal("0") for lot in artificial_lots))
+
+    def test_moving_average_multi_lot_transfer_uses_remaining_amount(self) -> None:
+        source_low, source_high = self._moving_average_source_lots()
+        source_later = InTransaction(
+            self._configuration,
+            "2020-07-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Buy",
+            spot_price=RP2Decimal("500"),
+            crypto_in=RP2Decimal("1"),
+            unique_id="ma-later",
+            row=5,
+        )
+        first_transfer = self._moving_average_intra("ma-first", "2020-06-01 08:00:00 +0000", "Coinbase", "Kraken", "1.5", "1.5")
+        second_transfer = self._moving_average_intra("ma-second", "2020-08-01 08:00:00 +0000", "Coinbase", "BlockFi", "0.5", "0.5")
+        blockfi_sale = OutTransaction(
+            self._configuration,
+            "2021-03-01 08:00:00 +0000",
+            "B1",
+            "BlockFi",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("1000"),
+            crypto_out_no_fee=RP2Decimal("0.5"),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="ma-blockfi-sale",
+            row=6,
+        )
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+
+        computed = compute_tax_per_wallet(
+            self._configuration,
+            AccountingEngine(years_2_methods),
+            method,
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high, source_later]),
+                self._build_out_set([blockfi_sale]),
+                self._build_intra_set([first_transfer, second_transfer]),
+            ),
+        )
+
+        blockfi_lot = next(
+            cast(InTransaction, transaction)
+            for transaction in computed.in_transaction_set
+            if cast(InTransaction, transaction).unique_id.startswith("ma-second/")
+        )
+        blockfi_gain_loss = next(cast(GainLoss, entry) for entry in computed.gain_loss_set if cast(GainLoss, entry).taxable_event is blockfi_sale)
+        self.assertEqual(blockfi_lot.fiat_in_with_fee, RP2Decimal("200"))
+        self.assertEqual(blockfi_gain_loss.fiat_cost_basis, RP2Decimal("200"))
+
+    def test_moving_average_multi_lot_sale_uses_remaining_amount(self) -> None:
+        source_low, source_high = self._moving_average_source_lots()
+        source_sale = OutTransaction(
+            self._configuration,
+            "2020-06-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("400"),
+            crypto_out_no_fee=RP2Decimal("1.5"),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="ma-source-sale",
+            row=5,
+        )
+        source_later = InTransaction(
+            self._configuration,
+            "2020-07-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Buy",
+            spot_price=RP2Decimal("500"),
+            crypto_in=RP2Decimal("1"),
+            unique_id="ma-later",
+            row=6,
+        )
+        transfer = self._moving_average_intra("ma-after-sale", "2020-08-01 08:00:00 +0000", "Coinbase", "BlockFi", "0.5", "0.5")
+        blockfi_sale = OutTransaction(
+            self._configuration,
+            "2021-03-01 08:00:00 +0000",
+            "B1",
+            "BlockFi",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("1000"),
+            crypto_out_no_fee=RP2Decimal("0.5"),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="ma-blockfi-sale",
+            row=7,
+        )
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+
+        computed = compute_tax_per_wallet(
+            self._configuration,
+            AccountingEngine(years_2_methods),
+            method,
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high, source_later]),
+                self._build_out_set([source_sale, blockfi_sale]),
+                self._build_intra_set([transfer]),
+            ),
+        )
+
+        blockfi_lot = next(
+            cast(InTransaction, transaction)
+            for transaction in computed.in_transaction_set
+            if cast(InTransaction, transaction).unique_id.startswith("ma-after-sale/")
+        )
+        blockfi_gain_loss = next(cast(GainLoss, entry) for entry in computed.gain_loss_set if cast(GainLoss, entry).taxable_event is blockfi_sale)
+        self.assertEqual(blockfi_lot.fiat_in_with_fee, RP2Decimal("200"))
+        self.assertEqual(blockfi_gain_loss.fiat_cost_basis, RP2Decimal("200"))
+
+    def test_per_wallet_merge_preserves_tax_engine_effective_basis(self) -> None:
+        source_low, source_high = self._moving_average_source_lots()
+        source_sale = OutTransaction(
+            self._configuration,
+            "2021-03-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("500"),
+            crypto_out_no_fee=RP2Decimal("0.5"),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="ma-source-sale",
+            row=5,
+        )
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+
+        computed = compute_tax_per_wallet(
+            self._configuration,
+            AccountingEngine(years_2_methods),
+            FifoAccountingMethod(),
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high]),
+                self._build_out_set([source_sale]),
+                self._build_intra_set([]),
+            ),
+        )
+
+        self.assertEqual(computed.get_in_transaction_fiat_in_with_fee(source_low), RP2Decimal("100"))
+        self.assertEqual(computed.get_in_transaction_fiat_in_with_fee(source_high), RP2Decimal("300"))
+        self.assertEqual(computed.get_open_position_in_transaction_fiat_in_with_fee(source_low), RP2Decimal("200"))
+        self.assertEqual(computed.get_open_position_in_transaction_fiat_in_with_fee(source_high), RP2Decimal("200"))
+
+    def test_moving_average_replay_does_not_use_future_report_basis(self) -> None:
+        for input_basis in (None, RP2Decimal("200")):
+            with self.subTest(input_basis=input_basis):
+                buys = [
+                    InTransaction(
+                        self._configuration,
+                        timestamp,
+                        "B1",
+                        "Coinbase",
+                        "Bob",
+                        "Buy",
+                        spot_price=RP2Decimal(price),
+                        crypto_in=RP2Decimal("1"),
+                        unique_id=identifier,
+                        row=row,
+                    )
+                    for timestamp, price, identifier, row in (
+                        ("2020-01-01 08:00:00 +0000", "100", "chronological-buy-1", 1),
+                        ("2020-03-01 08:00:00 +0000", "300", "chronological-buy-2", 3),
+                    )
+                ]
+                sales = [
+                    OutTransaction(
+                        self._configuration,
+                        timestamp,
+                        "B1",
+                        "Coinbase",
+                        "Bob",
+                        "Sell",
+                        spot_price=RP2Decimal("500"),
+                        crypto_out_no_fee=RP2Decimal("0.5"),
+                        crypto_fee=RP2Decimal("0"),
+                        unique_id=identifier,
+                        row=row,
+                    )
+                    for timestamp, identifier, row in (
+                        ("2020-02-01 08:00:00 +0000", "chronological-sale-1", 2),
+                        ("2020-04-01 08:00:00 +0000", "chronological-sale-2", 4),
+                    )
+                ]
+                input_data = InputData(
+                    "B1",
+                    self._build_in_set(buys),
+                    self._build_out_set(sales),
+                    self._build_intra_set([]),
+                    in_transaction_2_fiat_in_with_fee_override={} if input_basis is None else {buys[0]: input_basis},
+                )
+                method = MovingAverageAccountingMethod()
+                methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+                methods.insert_node(MIN_DATE.year, method)
+                universal = compute_tax(self._configuration, AccountingEngine(methods), input_data)
+                actual = compute_tax_per_wallet(self._configuration, AccountingEngine(methods), method, input_data)
+                expected = {cast(GainLoss, entry).taxable_event.unique_id: cast(GainLoss, entry).fiat_cost_basis for entry in universal.gain_loss_set}
+                observed = {cast(GainLoss, entry).taxable_event.unique_id: cast(GainLoss, entry).fiat_cost_basis for entry in actual.gain_loss_set}
+                self.assertEqual(observed, expected)
+                self.assertEqual(observed["chronological-sale-1"], RP2Decimal("50") if input_basis is None else RP2Decimal("100"))
+
+    def test_pool_source_sale_after_transfer_fails_closed(self) -> None:
+        source_low, source_high = self._moving_average_source_lots()
+        later = InTransaction(
+            self._configuration,
+            "2020-07-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Buy",
+            spot_price=RP2Decimal("500"),
+            crypto_in=RP2Decimal("1"),
+            unique_id="source-later-buy",
+            row=5,
+        )
+        transfer = self._moving_average_intra("source-transfer", "2020-06-01 08:00:00 +0000", "Coinbase", "Kraken", "1.5", "1.5")
+        sale = OutTransaction(
+            self._configuration,
+            "2020-08-01 08:00:00 +0000",
+            "B1",
+            "Coinbase",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("1000"),
+            crypto_out_no_fee=RP2Decimal("0.5"),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="source-sale",
+            row=6,
+        )
+        input_data = InputData("B1", self._build_in_set([source_low, source_high, later]), self._build_out_set([sale]), self._build_intra_set([transfer]))
+        # The source should have 0.5 at 200 plus 1 at 500: the sale's basis
+        # would be 200. Replaying the full original lots instead yields 150.
+        for transfer_method, tax_method in (
+            (MovingAverageAccountingMethod(), MovingAverageAccountingMethod()),
+            (FifoAccountingMethod(), MovingAverageAccountingMethod()),
+            (MovingAverageAccountingMethod(), FifoAccountingMethod()),
+        ):
+            with self.subTest(transfer_method=transfer_method.name, tax_method=tax_method.name):
+                methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+                methods.insert_node(MIN_DATE.year, tax_method)
+                with self.assertRaisesRegex(RP2ValueError, "source-wallet disposal after an outgoing transfer"):
+                    compute_tax_per_wallet(self._configuration, AccountingEngine(methods), transfer_method, input_data)
+
+    def test_per_wallet_rejects_fee_bearing_cross_account_transfer(self) -> None:
+        input_data, _intra = self._moving_average_transfer_fixture(crypto_sent="1.1", crypto_received="1")
+
+        for method in (FifoAccountingMethod(), MovingAverageAccountingMethod()):
+            with self.subTest(method=method.name):
+                years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+                years_2_methods.insert_node(MIN_DATE.year, method)
+                with self.assertRaisesRegex(RP2ValueError, "Fee-bearing intra-transactions are unsupported with per_wallet"):
+                    compute_tax_per_wallet(self._configuration, AccountingEngine(years_2_methods), method, input_data)
+
+    def test_moving_average_pool_state_survives_full_self_transfer(self) -> None:
+        self_transfer = self._moving_average_intra("ma-self", "2020-06-01 08:00:00 +0000", "Coinbase", "Coinbase", "2", "2")
+        external_transfer = self._moving_average_intra("ma-external", "2020-07-01 08:00:00 +0000", "Coinbase", "Kraken", "1", "1")
+
+        computed = self._compute_moving_average_fixture([self_transfer, external_transfer])
+
+        destination_lot = next(
+            cast(InTransaction, transaction)
+            for transaction in computed.in_transaction_set
+            if cast(InTransaction, transaction).unique_id.startswith("ma-external/")
+        )
+        self.assertEqual(destination_lot.fiat_in_with_fee, RP2Decimal("200"))
+
+    def test_all_fee_bearing_transfers_fail_closed_in_both_orderings(self) -> None:
+        for method in (FifoAccountingMethod(), MovingAverageAccountingMethod()):
+            for self_transfer_has_fee in (False, True):
+                for fee_transfer_first in (False, True):
+                    with self.subTest(method=method.name, self_transfer_has_fee=self_transfer_has_fee, fee_transfer_first=fee_transfer_first):
+                        fee_destination = "Coinbase" if self_transfer_has_fee else "Kraken"
+                        fee_transfer = self._moving_average_intra(
+                            f"fee-{method.name}-{self_transfer_has_fee}-{fee_transfer_first}",
+                            "2020-06-01 08:00:00 +0000" if fee_transfer_first else "2020-07-01 08:00:00 +0000",
+                            "Coinbase",
+                            fee_destination,
+                            "0.6",
+                            "0.5",
+                        )
+                        fee_free_transfer = self._moving_average_intra(
+                            f"free-{method.name}-{self_transfer_has_fee}-{fee_transfer_first}",
+                            "2020-07-01 08:00:00 +0000" if fee_transfer_first else "2020-06-01 08:00:00 +0000",
+                            "Coinbase",
+                            "Kraken",
+                            "1",
+                            "1",
+                        )
+                        source_low, source_high = self._moving_average_source_lots()
+                        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+                        years_2_methods.insert_node(MIN_DATE.year, method)
+                        with self.assertRaisesRegex(RP2ValueError, "Fee-bearing intra-transactions are unsupported with per_wallet"):
+                            compute_tax_per_wallet(
+                                self._configuration,
+                                AccountingEngine(years_2_methods),
+                                method,
+                                InputData(
+                                    "B1",
+                                    self._build_in_set([source_low, source_high]),
+                                    self._build_out_set([]),
+                                    self._build_intra_set([fee_transfer, fee_free_transfer]),
+                                ),
+                            )
+
+    def test_moving_average_pool_state_survives_transfer_cycle(self) -> None:
+        to_kraken = self._moving_average_intra("ma-cycle-1", "2020-06-01 08:00:00 +0000", "Coinbase", "Kraken", "2", "2")
+        back_to_coinbase = self._moving_average_intra("ma-cycle-2", "2020-07-01 08:00:00 +0000", "Kraken", "Coinbase", "2", "2")
+        to_blockfi = self._moving_average_intra("ma-cycle-3", "2020-08-01 08:00:00 +0000", "Coinbase", "BlockFi", "1", "1")
+
+        source_low, source_high = self._moving_average_source_lots()
+        method = MovingAverageAccountingMethod()
+        wallet_inputs = TransferAnalyzer(
+            self._configuration,
+            method,
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high]),
+                self._build_out_set([]),
+                self._build_intra_set([to_kraken, back_to_coinbase, to_blockfi]),
+            ),
+        ).analyze()
+
+        destination_lot = next(
+            cast(InTransaction, transaction)
+            for transaction in wallet_inputs[Account("BlockFi", "Bob")].unfiltered_in_transaction_set
+            if cast(InTransaction, transaction).unique_id.startswith("ma-cycle-3/")
+        )
+        self.assertEqual(destination_lot.fiat_in_with_fee, RP2Decimal("200"))
+
+    def test_fake_country_computation_hook_carries_basis_between_opaque_pools(self) -> None:
+        input_data, _intra = self._moving_average_transfer_fixture(crypto_sent="1", crypto_received="1")
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+
+        class FakePoolCountry(US):
+            def compute_tax_for_assets(
+                self,
+                configuration: Configuration,
+                accounting_engine: AccountingEngine,
+                asset_to_input_data: Dict[str, InputData],
+            ) -> Dict[str, ComputedData]:
+                return {
+                    asset: compute_tax_per_wallet(configuration, accounting_engine, method, asset_input) for asset, asset_input in asset_to_input_data.items()
+                }
+
+        result = FakePoolCountry().compute_tax_for_assets(
+            self._configuration,
+            AccountingEngine(years_2_methods),
+            {"B1": input_data},
+        )
+
+        gain_losses = [cast(GainLoss, entry) for entry in result["B1"].gain_loss_set]
+        self.assertEqual(len(gain_losses), 1)
+        self.assertEqual(gain_losses[0].fiat_cost_basis, RP2Decimal("200"))
+        open_basis = sum(
+            (
+                result["B1"].get_open_position_in_transaction_fiat_in_with_fee(cast(InTransaction, entry))
+                * cast(RP2Decimal, result["B1"].get_in_transaction_actual_amount(cast(InTransaction, entry)))
+                / cast(InTransaction, entry).crypto_in
+                for entry in result["B1"].open_position_in_transaction_set
+                if result["B1"].get_in_transaction_actual_amount(cast(InTransaction, entry)) is not None
+            ),
+            RP2Decimal("0"),
+        )
+        self.assertEqual(open_basis, RP2Decimal("200"))
+        self.assertEqual(open_basis + gain_losses[0].fiat_cost_basis, RP2Decimal("400"))
+
+    def _compute_moving_average_fixture(self, intras: List[IntraTransaction]) -> ComputedData:
+        source_low, source_high = self._moving_average_source_lots()
+        method = MovingAverageAccountingMethod()
+        years_2_methods: AVLTree[int, AbstractAccountingMethod] = AVLTree()
+        years_2_methods.insert_node(MIN_DATE.year, method)
+        return compute_tax_per_wallet(
+            self._configuration,
+            AccountingEngine(years_2_methods),
+            method,
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high]),
+                self._build_out_set([]),
+                self._build_intra_set(intras),
+            ),
+        )
+
+    def _moving_average_source_lots(self, source_low_amount: str = "1") -> Tuple[InTransaction, InTransaction]:
+        return (
+            InTransaction(
+                self._configuration,
+                "2020-01-01 08:00:00 +0000",
+                "B1",
+                "Coinbase",
+                "Bob",
+                "Buy",
+                spot_price=RP2Decimal("100"),
+                crypto_in=RP2Decimal(source_low_amount),
+                unique_id="ma-1",
+                row=1,
+            ),
+            InTransaction(
+                self._configuration,
+                "2020-01-02 08:00:00 +0000",
+                "B1",
+                "Coinbase",
+                "Bob",
+                "Buy",
+                spot_price=RP2Decimal("300"),
+                crypto_in=RP2Decimal("1"),
+                unique_id="ma-2",
+                row=2,
+            ),
+        )
+
+    def _moving_average_intra(
+        self,
+        unique_id: str,
+        timestamp: str,
+        from_exchange: str,
+        to_exchange: str,
+        crypto_sent: str,
+        crypto_received: str,
+    ) -> IntraTransaction:
+        return IntraTransaction(
+            self._configuration,
+            timestamp,
+            "B1",
+            from_exchange=from_exchange,
+            from_holder="Bob",
+            to_exchange=to_exchange,
+            to_holder="Bob",
+            spot_price=RP2Decimal("500"),
+            crypto_sent=RP2Decimal(crypto_sent),
+            crypto_received=RP2Decimal(crypto_received),
+            unique_id=unique_id,
+            row=100 + int(timestamp[5:7]),
+        )
+
+    def _moving_average_transfer_fixture(
+        self,
+        crypto_sent: str,
+        crypto_received: str,
+        source_low_amount: str = "1",
+    ) -> Tuple[InputData, IntraTransaction]:
+        source_low, source_high = self._moving_average_source_lots(source_low_amount)
+        intra = IntraTransaction(
+            self._configuration,
+            "2020-06-01 08:00:00 +0000",
+            "B1",
+            from_exchange="Coinbase",
+            from_holder="Bob",
+            to_exchange="Kraken",
+            to_holder="Bob",
+            spot_price=RP2Decimal("500"),
+            crypto_sent=RP2Decimal(crypto_sent),
+            crypto_received=RP2Decimal(crypto_received),
+            unique_id="ma-3",
+            row=3,
+        )
+        sale = OutTransaction(
+            self._configuration,
+            "2021-03-01 08:00:00 +0000",
+            "B1",
+            "Kraken",
+            "Bob",
+            "Sell",
+            spot_price=RP2Decimal("500"),
+            crypto_out_no_fee=RP2Decimal(crypto_received),
+            crypto_fee=RP2Decimal("0"),
+            unique_id="ma-4",
+            row=4,
+        )
+        return (
+            InputData(
+                "B1",
+                self._build_in_set([source_low, source_high]),
+                self._build_out_set([sale]),
+                self._build_intra_set([intra]),
+            ),
+            intra,
+        )
 
     def test_per_wallet_transfer_of_earn_lot_does_not_double_count_income(self) -> None:
         interest = InTransaction(

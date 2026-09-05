@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Dict, Iterator, List, NamedTuple, Optional
 
 from prezzemolo.avl_tree import AVLTree
@@ -199,6 +199,20 @@ class AccountingEngine:
 
     def _set_partial_amount(self, acquired_lot: InTransaction, amount: RP2Decimal) -> None:
         self.__acquired_lot_2_partial_amount[acquired_lot] = amount
+
+    def get_open_position_basis(self, to_date: date) -> Dict[InTransaction, RP2Decimal]:
+        """Snapshot a date-bounded replay, including acquisitions after its last disposal."""
+        if not isinstance(to_date, date):
+            raise RP2TypeError("Parameter 'to_date' is not of type date")
+        eligible_indices = [index for index, lot in enumerate(self.__acquired_lot_list) if lot.timestamp.date() <= to_date]
+        if not eligible_indices:
+            return {}
+        method = self._get_accounting_method(to_date.year)
+        lot_candidates = self.__years_2_lot_candidates.find_max_value_less_than(to_date.year)
+        if lot_candidates is None:
+            raise RP2RuntimeError("Internal error: no lot candidates found for report year")
+        lot_candidates.set_to_index(eligible_indices[-1])
+        return method.get_open_position_basis(lot_candidates)
 
     def set_acquired_lot_partial_amount(self, acquired_lot: InTransaction, amount: RP2Decimal) -> None:
         InTransaction.type_check("acquired_lot", acquired_lot)
