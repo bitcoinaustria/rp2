@@ -56,6 +56,7 @@ _SHEET_TO_TYPES: Dict[str, Tuple[TransactionType, ...]] = {
     SheetNames.INTEREST.value: (TransactionType.INTEREST,),
     SheetNames.INVESTMENT_EXPENSES.value: (
         TransactionType.FEE,
+        TransactionType.LOST,
         TransactionType.MOVE,
     ),
     SheetNames.MINING.value: (TransactionType.MINING,),

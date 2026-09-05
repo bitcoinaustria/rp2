@@ -172,12 +172,14 @@ class Generator(AbstractODSGenerator):
         year: int
         years_2_transaction_sets: Dict[int, List[AbstractTransaction]] = {}
         previous_year_row_offset: int = 0
+        previous_year: Optional[int] = None
 
         # Sort all in and out transactions by year, the fee from intra transactions must be reported
         for entry in chain(in_transaction_set, out_transaction_set, intra_transaction_set):  # type: ignore
             years_2_transaction_sets.setdefault(entry.timestamp.year, []).append(entry)
 
-        for year, transaction_set in years_2_transaction_sets.items():
+        for year in sorted(years_2_transaction_sets):
+            transaction_set = years_2_transaction_sets[year]
             # Sort the transactions by timestamp and generate sheet by year
             previous_year_row_offset = self.__generate_asset_year(
                 asset=asset,
@@ -185,7 +187,9 @@ class Generator(AbstractODSGenerator):
                 transaction_list=sorted(transaction_set, key=lambda x: x.timestamp),
                 output_file=output_file,
                 previous_year_row_offset=previous_year_row_offset,
+                previous_year=previous_year,
             )
+            previous_year = year
 
             summary_sheet: Any = output_file.sheets[self.get_summary_sheet_name(year)]
 
@@ -304,7 +308,15 @@ class Generator(AbstractODSGenerator):
             donated_amount_in_yen=donated_amount_in_yen,
         )
 
-    def __generate_asset_year(self, asset: str, year: int, transaction_list: List[AbstractTransaction], output_file: Any, previous_year_row_offset: int) -> int:
+    def __generate_asset_year(
+        self,
+        asset: str,
+        year: int,
+        transaction_list: List[AbstractTransaction],
+        output_file: Any,
+        previous_year_row_offset: int,
+        previous_year: Optional[int],
+    ) -> int:
         asset_year_sheet: Any = output_file.sheets[self.ASSET_TEMPLATE_SHEET].copy(newname=self.get_tax_sheet_name(asset, year))
         output_file.sheets += asset_year_sheet
 
@@ -370,8 +382,8 @@ class Generator(AbstractODSGenerator):
         # Last year's totals
         previous_year_crypto_cell: Optional[Any] = None
         previous_year_yen_cell: Optional[Any] = None
-        if previous_year_row_offset != 0:
-            previous_year_sheet_name: str = self.get_tax_sheet_name(asset, year - 1)
+        if previous_year is not None:
+            previous_year_sheet_name: str = self.get_tax_sheet_name(asset, previous_year)
             quoted_previous_year_sheet_name: str = self._quote_formula_sheet_name(previous_year_sheet_name)
             previous_year_crypto_cell = self._formula(f"={quoted_previous_year_sheet_name}.I{previous_year_row_offset}")
             previous_year_yen_cell = self._formula(f"={quoted_previous_year_sheet_name}.I{previous_year_row_offset+1}")
