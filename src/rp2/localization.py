@@ -21,11 +21,16 @@ from babel.core import UnknownLocaleError
 
 from rp2.rp2_error import RP2TypeError, RP2ValueError
 
-_ = gettext.gettext
+_translation: gettext.NullTranslations = gettext.NullTranslations()
+
+
+def _(message: str) -> str:
+    # Keep this callable stable so existing imports use the currently selected language.
+    return _translation.gettext(message)
 
 
 def set_generation_language(generation_language: str) -> None:
-    global _  # pylint: disable=global-statement
+    global _translation  # pylint: disable=global-statement
     locales_dir = Path(os.path.dirname(__file__)).absolute() / Path("locales")
     if not isinstance(generation_language, str):
         raise RP2TypeError(f"generation_language parameter is not a string: {generation_language}")
@@ -37,5 +42,4 @@ def set_generation_language(generation_language: str) -> None:
     except FileNotFoundError as exc:
         raise RP2ValueError(f"No translation found for language: {generation_language}") from exc
 
-    translation.install()
-    _ = translation.gettext
+    _translation = translation

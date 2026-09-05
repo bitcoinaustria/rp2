@@ -11,7 +11,7 @@
 
 - [src/rp2/](src/rp2/) — engine core: transactions, gains, balances, accounting engine, ODS parser, decimal math, logger.
 - [src/rp2/plugin/country/](src/rp2/plugin/country/) — country plugins / entry points. Each `<code>.py` defines a subclass of `AbstractCountry` and an `rp2_entry()` function wired into [setup.cfg](setup.cfg) `console_scripts`.
-- [src/rp2/plugin/accounting_method/](src/rp2/plugin/accounting_method/) — accounting method plugins (currently `fifo`, `lifo`, `hifo`, `lofo`, each a subclass of `AbstractChronologicalAccountingMethod` or `AbstractFeatureBasedAccountingMethod`).
+- [src/rp2/plugin/accounting_method/](src/rp2/plugin/accounting_method/) — accounting method plugins (`fifo`, `lifo`, `hifo`, `lofo`, `moving_average`, `moving_average_at`); pool state lives in `PoolAcquiredLotCandidates`.
 - [src/rp2/plugin/report/](src/rp2/plugin/report/) — report generators. Country-specific generators live in `src/rp2/plugin/report/<country>/`. ODS templates live in `src/rp2/plugin/report/data/<country>/`.
 - [src/rp2/locales/](src/rp2/locales/) — Babel `.po`/`.mo` catalogs for report localization.
 - [tests/](tests/) — `unittest`-based suites. ODS output-diff tests compare generated reports against golden files in [input/golden/](input/golden/).
@@ -25,10 +25,10 @@ This fork adds Austrian crypto tax support (§ 27b EStG post eco-social tax refo
 - **Altvermögen vs Neuvermögen** is a calendar-cutoff distinction (acquisition on/before 2021-02-28 → Altvermögen; after → Neuvermögen). Upstream RP2's `long_term_capital_gain_period` is a days-threshold, not a cutoff.
 - **Crypto-to-crypto swaps are non-taxable** under § 27b Abs 3 Z 2 EStG with basis carryover. Upstream RP2 treats every disposal as taxable.
 
-The implementation proceeds in phases, each a reviewable commit. Core changes are allowed only where the task strictly requires them — justify each change, keep it minimal, and preserve the existing plugin contracts for all unrelated paths.
+The Austrian implementation was introduced in the phases below; these are historical milestones, not pending tasks. Core changes are allowed only where the task strictly requires them — justify each change, keep it minimal, and preserve the existing plugin contracts for all unrelated paths.
 
 1. **Phase 1 — Country skeleton.** `src/rp2/plugin/country/at.py`, `rp2_at` entry, FIFO-only. Pure additive plugin, zero core changes.
-2. **Phase 2 — Moving-average engine.** `moving_average_at` accounting method. Expected minimal core touch: let the accounting method return an optional per-disposal cost-basis override alongside the selected lot (e.g. an extra field on `AcquiredLotAndAmount`), and thread it through `GainLoss` construction so the pool's running average overrides the per-lot cost basis without invalidating the lot-pairing audit trail.
+2. **Phase 2 — Moving-average engine.** `moving_average_at` accounting method. `AcquiredLotAndAmount.unit_cost_basis_override` is threaded through `GainLoss` construction so the pool's running average overrides per-lot cost basis while preserving real lot identity and the pairing audit trail.
 3. **Phase 3 — Alt/Neu split.** The Austrian method reads an `at_regime=alt|neu` marker from `transaction.notes`. Altvermögen path: per-lot FIFO + one-year Spekulationsfrist (a **calendar** year per § 108 BAO, not a fixed 365-day count — `classify_disposal` compares Vienna calendar dates against the acquisition anniversary, so a 29 February inside the holding period does not shift the boundary). Neuvermögen path: moving average per pool. Both paths emit standard `GainLoss` objects tied to real `InTransaction` lots.
 4. **Phase 4 — Swap neutrality (outgoing leg).** Paired crypto-to-crypto swaps use `at_swap_link=<id>` in notes. The Austrian method emits a zero-gain `GainLoss` on the outgoing Neu leg by overriding cost basis with fee-aware per-unit taxable proceeds, and depletes the pool at the running average.
    - **Phase 4 follow-up / PR #6 — native cross-asset basis carry (RP2-owned).** RP2 now carries the incoming leg's basis itself: `AT.compute_tax_for_assets` → `compute_native_at_tax` (in [at_native_tax_engine.py](src/rp2/plugin/country/at_native_tax_engine.py)) interleaves per-asset taxable events so the source pool's running average seeds the destination asset's incoming lot via `acquired_lot_2_fiat_in_with_fee_override` (= `crypto_out_no_fee * neu_pool_avg_at_swap_time`). Kassiber no longer synthesizes the carried `fiat_in_with_fee`; it emits both legs at market value and lets RP2 own the carry. The native runner requires `moving_average_at` — with any other accounting method an outgoing swap leg produces no carried basis, so the run fails loudly (`RP2ValueError`) rather than silently realizing a taxable gain while `classify_disposal` still reports `NEU_SWAP`.
@@ -94,6 +94,9 @@ Kassiber iterates `ComputedData.gain_loss_set`, calls `classify_disposal` per ro
 - **Per-wallet transfer cutoff.** All fee-bearing intra-transactions are rejected under `per_wallet`: taxable replay cannot allocate an earlier fee chronologically while also carrying non-taxable principal. Fee-free transfers remain supported.
 - **Per-wallet scope.** `per_wallet` is not a general production pool engine: its tax replay does not remove transferred principal before a later source disposal (for example, FIFO can reuse the transferred lot). A production country-wide pool needs a dedicated chronological engine, not this helper.
 - **Pool report basis.** Acquisition/native-carry overrides are never restated to a later pool average. Open positions use `ComputedData.get_open_position_in_transaction_fiat_in_with_fee()` at the report cutoff; `get_in_transaction_fiat_in_with_fee()` remains acquisition basis. Pooled per-wallet source disposals after an outgoing transfer and mixed pooled tax/transfer methods with non-self transfers fail closed.
+- **Effective acquisition basis.** Basis overrides must reach realized gains and HIFO/LOFO selection, including transferred lots and Austrian Alt FIFO. Preserve lot identity; acquisition basis and report-cutoff pool basis are distinct (see the pool report rule above).
+- **Equal-time lots.** Availability boundaries follow the stable acquired-list order, not transaction row/internal-id order; library callers and artificial transfers can supply different orders.
+- **Localization.** Keep imported gettext callables stable across language changes and resolve transaction labels at generation time. Preserve literal extraction keys; do not install `_` into the embedding application's builtins.
 - **Identity.** Any class added to a dict or set must redefine `__eq__`, `__ne__`, and `__hash__`.
 
 ## Working rules
@@ -101,7 +104,8 @@ Kassiber iterates `ComputedData.gain_loss_set`, calls `classify_disposal` per ro
 - **Preserve RP2's approach.** Default to additive plugin work. Core edits (`GainLoss`, `compute_tax`, `AbstractAccountingMethod`, transaction dataclasses) are allowed only where the task strictly requires them — think twice, justify the need, keep the diff minimal, and leave every unrelated code path untouched.
 - Each phase lands as its own commit so rollback points stay clean.
 - Before committing, review `git diff --cached` plus any unstaged `git diff` as a separate pass from implementation. Fix correctness and consistency issues before push.
-- Existing lot-based methods (`fifo`, `lifo`, `hifo`, `lofo`) must pass their golden ODS diffs unchanged after any new work lands.
+- Preserve existing golden ODS outputs unless the task intentionally corrects report output. For authorized corrections, update only affected fixtures and document the exact before/after differences; do not regenerate unrelated drift to make tests pass. Label-only changes must preserve numbers, calculation formulas and hyperlink targets.
+- Use an isolated worktree for broad formatter passes; preserve unrelated changes and nested worktrees. Target GitHub explicitly with `-R bitcoinaustria/rp2` because the CLI can otherwise select upstream.
 - When adding a new country plugin, keep it minimal and additive — mirror [es.py](src/rp2/plugin/country/es.py) / [ie.py](src/rp2/plugin/country/ie.py) shape and add the corresponding entry in [setup.cfg](setup.cfg) `console_scripts`.
 - Prefer the `notes` channel over schema changes for convention markers (`at_pool=…`, `at_regime=…`, `at_swap_link=…`).
 
@@ -113,17 +117,19 @@ Dependencies install via:
 virtualenv -p python3 .venv && . .venv/bin/activate && .venv/bin/pip3 install -e '.[dev]'
 ```
 
-Baseline commands (run each before declaring work done):
+Activate the environment so CLI entry points are on `PATH`; use `PYTHONPATH=src` when testing a worktree against an environment installed from another checkout. Baseline commands (run each before declaring work done):
 
 ```bash
 pytest --tb=native --verbose        # unit tests
 mypy src tests                      # type check
-pylint -r y src tests/*.py          # lint
+pylint --disable=fixme -r y src tests/*.py  # CI lint; existing TODOs are excluded
 bandit -r src                       # security check
 black src tests                     # reformat
 isort .                             # sort imports
 pre-commit run --all-files          # full pre-commit pass without committing
 ```
+
+Exercise native Austrian swaps through `AT.compute_tax_for_assets`, not only private helpers. For localization changes, test language switches in one process and check gettext extraction as well as localized golden outputs.
 
 For debug logs prepend `LOG_LEVEL=DEBUG` to the relevant `rp2_<country>` command:
 
@@ -134,6 +140,8 @@ LOG_LEVEL=DEBUG rp2_at -o output -p at_example_ config/crypto_example.ini input/
 ## Known gaps and non-goals
 
 - **Swap basis carry is now RP2-owned (was a known gap, closed in PR #6).** The earlier gap — RP2 trusting Kassiber to compute the incoming leg's `fiat_in_with_fee` — is closed: `compute_native_at_tax` derives it from live source-pool state (cross-asset pool-state awareness now exists in the AT runner). Kassiber emits both legs at market value and RP2 carries the basis. RP2 still does not pool across assets in the *generic* engine (only the AT runner interleaves), so this is an AT-specific capability.
+- **Pool method transitions.** Consecutive same-method entries retain pool state; leaving a pool for a different method is rejected. See the accounting schedule contract in [README.dev.md](README.dev.md) and [input configuration guidance](docs/input_files.md).
+- **Japanese CLI remains disabled.** The retained generator has direct regression coverage; do not interpret its skipped country suites or archived fixtures as production support.
 - **Native runner ordering is conservative.** When swap legs are present, `compute_native_at_tax` orders events so a carried basis is resolved before the destination pool consumes it. An unmarked disposal that would route to Alt is treated as potentially Neu-affecting (the runner has no cross-asset lot-availability view), so a contrived swap *cycle* of unmarked-Alt disposals can raise "Unable to order ..." instead of resolving. The fix is to tag such a disposal `at_regime=alt`; the failure is loud, never a wrong number. See [at_native_tax_engine.py](src/rp2/plugin/country/at_native_tax_engine.py) `_incoming_can_affect_event`.
 - **Swap neutrality requires `moving_average_at`.** `AT.get_accounting_methods()` also accepts `fifo` and `moving_average` for diagnostics, but those produce no carried basis; with `at_swap_link` markers present the native runner raises rather than mis-report. Run swap-bearing Austrian data with the default `moving_average_at`.
 - **E 1kv layout is not in rp2.** Since Phase 9 the BMF-aligned summary, FinanzOnline transcription sheet, and de_AT presentation are Kassiber's responsibility. CLI-only users of `rp2_at` get `open_positions` only; for an Austrian tax report they need Kassiber.
