@@ -109,7 +109,7 @@ The config file is structured as described below. Note that:
 * the `assets` field of the `general` section contains a comma-separated list of all cryptocurrencies the user transacted with;
 * the `exchanges` field of the `general` section contains a comma-separated list of exchange or wallet identifiers;
 * the `holders` field of the `general` section typically contains only one name, unless multiple people are filing taxes jointly (in which case a comma-separated list is used);
-* the `generators` filed of the `general` section is optional and contains a comma-separated list of names of output generator plugins to use at generation time. If the section is not specified the default plugin set is used;
+* the `generators` field of the `general` section is optional and contains a comma-separated list of names of output generator plugins to use at generation time. If the field is omitted the default plugin set is used; an explicitly empty value disables report generation (matching an empty generator list in legacy JSON configurations);
 * the `accounting_methods` section is optional and contains information on which accounting methods to use on any given year (see an [example](../config/test_data_multi_method.ini));
 * the `application_methods` section is optional and is supported only by countries that opt in to multiple application methods: valid values are country-specific and can include `universal` and `per_wallet`;
 * the `transfer_methods` section is optional and is supported only when `per_wallet` application is selected: it controls how RP2 chooses which lot is moved by an `INTRA` transaction;

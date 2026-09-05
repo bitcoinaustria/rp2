@@ -66,7 +66,7 @@ def rp2_configuration_translator() -> None:
             Keyword.HOLDERS.value: ", ".join(json_configuration[Keyword.HOLDERS.value]),
         }
         if Keyword.GENERATORS.value in json_configuration:
-            ini_object[Keyword.GENERAL.value][Keyword.GENERATORS.value] = json_configuration[Keyword.GENERATORS.value]
+            ini_object[Keyword.GENERAL.value][Keyword.GENERATORS.value] = ", ".join(json_configuration[Keyword.GENERATORS.value])
         if Keyword.ACCOUNTING_METHODS.value in json_configuration:
             ini_object[Keyword.ACCOUNTING_METHODS.value] = json_configuration[Keyword.ACCOUNTING_METHODS.value]
         ini_object[Keyword.IN_HEADER.value] = json_configuration[Keyword.IN_HEADER.value]
