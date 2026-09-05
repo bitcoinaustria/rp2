@@ -217,8 +217,7 @@ class Configuration:  # pylint: disable=too-many-public-methods
             ini_configuration.read(configuration_path)
 
             for section_name in ini_configuration.sections():
-                section_name = section_name.strip()
-                normalized_section_name: str = section_name.split(" ", 1)[0].strip()
+                normalized_section_name: str = section_name.strip().split(" ", 1)[0]
                 if normalized_section_name == Keyword.GENERAL.value:
                     if self.__assets or self.__exchanges or self.__holders:
                         raise RP2ValueError(f"{configuration_path}: section '{normalized_section_name}' found multiple times in configuration file")
@@ -342,7 +341,12 @@ class Configuration:  # pylint: disable=too-many-public-methods
                 numeric_year: int = int(year.strip())
                 if numeric_year < MIN_DATE.year:
                     raise RP2ValueError(f"{configuration_path}: invalid year value in {section_label} section (integer > {MIN_DATE.year} was expected): {year}")
-                result[numeric_year] = method.strip()
+                if numeric_year in result:
+                    raise RP2ValueError(f"{configuration_path}: duplicate year in {section_label} section: {numeric_year}")
+                method_name: str = method.strip()
+                if not method_name:
+                    raise RP2ValueError(f"{configuration_path}: method for year {numeric_year} in {section_label} section cannot be empty")
+                result[numeric_year] = method_name
             except ValueError as exc:
                 raise RP2ValueError(f"{configuration_path}: invalid year value in {section_label} section (integer was expected): {year}") from exc
             except TypeError as exc:
