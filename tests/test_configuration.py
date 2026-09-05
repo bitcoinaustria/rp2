@@ -28,7 +28,7 @@ from rp2.rp2_decimal import ZERO, RP2Decimal
 from rp2.rp2_error import RP2TypeError, RP2ValueError
 
 
-class TestConfiguration(unittest.TestCase):
+class TestConfiguration(unittest.TestCase):  # pylint: disable=too-many-public-methods
     _country: AbstractCountry
     _configuration: Configuration
 
@@ -326,6 +326,33 @@ class TestConfiguration(unittest.TestCase):
             self._test_config(config)
 
         config[Keyword.ACCOUNTING_METHODS.value] = {"1970": "hifo", "2020": "lifo"}
+
+    def test_method_sections_reject_duplicate_normalized_years(self) -> None:
+        for section in (Keyword.ACCOUNTING_METHODS, Keyword.APPLICATION_METHODS, Keyword.TRANSFER_METHODS):
+            with self.subTest(section=section.value):
+                config = ConfigParser()
+                config.read("./config/test_data.ini")
+                config[section.value] = {"2024": "fifo", "02024": "lifo"}
+                with self.assertRaisesRegex(RP2ValueError, "duplicate year.*2024"):
+                    self._test_config(config)
+
+    def test_method_sections_reject_empty_method_names(self) -> None:
+        for section in (Keyword.ACCOUNTING_METHODS, Keyword.APPLICATION_METHODS, Keyword.TRANSFER_METHODS):
+            with self.subTest(section=section.value):
+                config = ConfigParser()
+                config.read("./config/test_data.ini")
+                config[section.value] = {"2024": "   "}
+                with self.assertRaisesRegex(RP2ValueError, "method.*2024.*cannot be empty"):
+                    self._test_config(config)
+
+    def test_section_names_allow_surrounding_whitespace(self) -> None:
+        config = ConfigParser()
+        config.read("./config/test_data.ini")
+        for section in config.sections():
+            config[f" {section} "] = dict(config[section])
+            del config[section]
+        configuration = self._test_config(config)
+        self.assertEqual(configuration.assets, {"B1", "B2", "B3", "B4"})
 
     def test_general_generators_override_country_defaults(self) -> None:
         config = ConfigParser()
