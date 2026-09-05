@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
 from rp2.abstract_accounting_method import (
     AbstractFeatureBasedAccountingMethod,
     AcquiredLotSortKey,
     fee_inclusive_unit_cost_basis,
 )
 from rp2.in_transaction import InTransaction
+from rp2.rp2_decimal import RP2Decimal
 
 
 # HIFO (Highest In, First Out) plugin. See https://www.investopedia.com/terms/h/hifo.asp.
@@ -29,3 +32,9 @@ class AccountingMethod(AbstractFeatureBasedAccountingMethod):
 
     def taxable_event_sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
         return AcquiredLotSortKey(-fee_inclusive_unit_cost_basis(lot), lot.cost_basis_timestamp.timestamp(), lot.row)
+
+    def sort_key_with_basis(self, lot: InTransaction, fiat_in_with_fee: Optional[RP2Decimal], taxable_event: bool) -> AcquiredLotSortKey:
+        key = super().sort_key_with_basis(lot, fiat_in_with_fee, taxable_event)
+        if fiat_in_with_fee is None:
+            return key
+        return key._replace(cost_key=-(fiat_in_with_fee / lot.crypto_in))

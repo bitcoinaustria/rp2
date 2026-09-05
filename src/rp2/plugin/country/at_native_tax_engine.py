@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.accounting_engine import AccountingEngine
@@ -187,29 +187,33 @@ def _find_dependency_cycle(dependency_graph: dict[str, set[str]]) -> list[str] |
     visited: set[str] = set()
     active: set[str] = set()
     stack: list[str] = []
-
-    def visit(node: str) -> list[str] | None:
-        if node in active:
-            cycle_start: int = stack.index(node)
-            return stack[cycle_start:] + [node]
-        if node in visited:
-            return None
-
-        active.add(node)
-        stack.append(node)
-        for dependency in sorted(dependency_graph.get(node, set())):
-            cycle = visit(dependency)
-            if cycle is not None:
-                return cycle
-        stack.pop()
-        active.remove(node)
-        visited.add(node)
-        return None
+    dependencies: dict[str, Iterator[str]] = {}
 
     for node in sorted(dependency_graph):
-        cycle = visit(node)
-        if cycle is not None:
-            return cycle
+        if node in visited:
+            continue
+        active.add(node)
+        stack.append(node)
+        dependencies[node] = iter(sorted(dependency_graph.get(node, set())))
+        # Keep DFS frames explicitly: a valid chronological swap chain can be longer than
+        # Python's recursion limit. Sorted iterators preserve the existing cycle diagnostic.
+        while stack:
+            current = stack[-1]
+            dependency = next(dependencies[current], None)
+            if dependency is None:
+                stack.pop()
+                active.remove(current)
+                visited.add(current)
+                del dependencies[current]
+                continue
+            if dependency in active:
+                cycle_start: int = stack.index(dependency)
+                return stack[cycle_start:] + [dependency]
+            if dependency in visited:
+                continue
+            active.add(dependency)
+            stack.append(dependency)
+            dependencies[dependency] = iter(sorted(dependency_graph.get(dependency, set())))
     return None
 
 

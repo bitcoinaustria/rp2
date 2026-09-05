@@ -285,7 +285,7 @@ The RP2 accounting engine automatically provides the following common functional
 * lot iteration, sorting, pairing and fractioning;
 * partial lot management: this occurs when a lot amount cannot be used fully;
 * lot disambiguation: this occurs when lots have the same timestamp;
-* accounting method change year over year: this occurs when the user changes accounting method with the `-m` option.
+* accounting method change year over year through the configuration file's `accounting_methods` schedule. Consecutive entries for the same method share candidate state. A lot-based method may transition into a pool, using its remaining lot quantities and basis; switching from a pool to a different method is rejected because acquisition costs do not represent the remaining pool basis.
 
 Accounting method plugins operate on acquired-lot queues and are reusable in both application modes supported by RP2:
 * under [universal application](https://www.forbes.com/sites/shehanchandrasekera/2020/09/17/what-crypto-taxpayers-need-to-know-about-fifo-lifo-hifo-specific-id/), there is one queue for each coin across every wallet and exchange;

@@ -123,7 +123,12 @@ class AccountingMethod(AbstractChronologicalAccountingMethod):
         if selected is None:
             return None
         lot_candidates.clear_partial_amount(selected)
-        return AcquiredLotAndAmount(acquired_lot=selected, amount=remaining)
+        basis = lot_candidates.get_fiat_in_with_fee(selected)
+        return AcquiredLotAndAmount(
+            acquired_lot=selected,
+            amount=remaining,
+            unit_cost_basis_override=basis / selected.crypto_in if basis != selected.fiat_in_with_fee else None,
+        )
 
     def __seek_neu_lot(
         self,

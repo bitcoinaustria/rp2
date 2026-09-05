@@ -263,8 +263,8 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
         # Control how far to advance the iterator, caller is responsible for updating
         for i in range(self.to_index + 1, to_index + 1):
             lot = self.acquired_lot_list[i]
-            self._accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, lot)
-            self._accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, lot)
+            self._accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, lot, self.get_fiat_in_with_fee(lot))
+            self._accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, lot, self.get_fiat_in_with_fee(lot))
         if to_index > self.to_index:
             super().set_to_index(to_index)
 
@@ -282,17 +282,30 @@ class FeatureBasedAcquiredLotCandidates(AbstractAcquiredLotCandidates):
     def add_acquired_lot(self, acquired_lot: InTransaction) -> None:
         super().add_acquired_lot(acquired_lot)
         accounting_method = cast(AbstractFeatureBasedAccountingMethod, self.accounting_method)
-        accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, acquired_lot)
-        accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, acquired_lot)
+        accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, acquired_lot, self.get_fiat_in_with_fee(acquired_lot))
+        accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, acquired_lot, self.get_fiat_in_with_fee(acquired_lot))
         super().set_to_index(len(self.acquired_lot_list) - 1)
+
+    def set_fiat_in_with_fee(self, acquired_lot: InTransaction, fiat_in_with_fee: RP2Decimal) -> None:
+        super().set_fiat_in_with_fee(acquired_lot, fiat_in_with_fee)
+        # Transfer analysis can attach an override immediately after adding a
+        # lot. Refresh keys without replacing the lot identity or partial cache.
+        self.__acquired_lot_heap.clear()
+        self.__taxable_event_acquired_lot_heap.clear()
+        for lot in self.acquired_lot_list[: self.to_index + 1]:
+            basis = self.get_fiat_in_with_fee(lot)
+            self._accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, lot, basis)
+            self._accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, lot, basis)
 
     def reset_partial_amounts(self, accounting_method: "AbstractAccountingMethod", original_partial_amounts: Dict[InTransaction, RP2Decimal]) -> None:
         if not isinstance(accounting_method, AbstractFeatureBasedAccountingMethod):
             raise RP2TypeError(f"Internal error: accounting_method is not of type AbstractFeatureBasedAccountingMethod, but of type {type(accounting_method)}")
         super().reset_partial_amounts(accounting_method, original_partial_amounts)
         for current_transaction, _ in original_partial_amounts.items():
-            accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, current_transaction)
-            accounting_method.add_selected_lot_to_taxable_event_heap(self.__taxable_event_acquired_lot_heap, current_transaction)
+            accounting_method.add_selected_lot_to_heap(self.__acquired_lot_heap, current_transaction, self.get_fiat_in_with_fee(current_transaction))
+            accounting_method.add_selected_lot_to_taxable_event_heap(
+                self.__taxable_event_acquired_lot_heap, current_transaction, self.get_fiat_in_with_fee(current_transaction)
+            )
 
 
 class AbstractAccountingMethod:
@@ -389,7 +402,12 @@ class AbstractChronologicalAccountingMethod(AbstractAccountingMethod):
 
         if selected_acquired_lot_amount > ZERO and selected_acquired_lot:
             lot_candidates.clear_partial_amount(selected_acquired_lot)
-            return AcquiredLotAndAmount(acquired_lot=selected_acquired_lot, amount=selected_acquired_lot_amount)
+            basis = lot_candidates.get_fiat_in_with_fee(selected_acquired_lot)
+            return AcquiredLotAndAmount(
+                acquired_lot=selected_acquired_lot,
+                amount=selected_acquired_lot_amount,
+                unit_cost_basis_override=basis / selected_acquired_lot.crypto_in if basis != selected_acquired_lot.fiat_in_with_fee else None,
+            )
         return None
 
 
@@ -402,13 +420,26 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
     ) -> FeatureBasedAcquiredLotCandidates:
         return FeatureBasedAcquiredLotCandidates(self, acquired_lot_list, acquired_lot_2_partial_amount, acquired_lot_2_fiat_in_with_fee_override)
 
-    def add_selected_lot_to_heap(self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction) -> None:
-        heap_item = (self.sort_key(lot), lot)
+    def add_selected_lot_to_heap(
+        self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction, fiat_in_with_fee: Optional[RP2Decimal] = None
+    ) -> None:
+        heap_item = (self.sort_key_with_basis(lot, fiat_in_with_fee, False), lot)
         heappush(heap, heap_item)
 
-    def add_selected_lot_to_taxable_event_heap(self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction) -> None:
-        heap_item = (self.taxable_event_sort_key(lot), lot)
+    def add_selected_lot_to_taxable_event_heap(
+        self, heap: List[Tuple[AcquiredLotSortKey, InTransaction]], lot: InTransaction, fiat_in_with_fee: Optional[RP2Decimal] = None
+    ) -> None:
+        heap_item = (self.sort_key_with_basis(lot, fiat_in_with_fee, True), lot)
         heappush(heap, heap_item)
+
+    def sort_key_with_basis(self, lot: InTransaction, fiat_in_with_fee: Optional[RP2Decimal], taxable_event: bool) -> AcquiredLotSortKey:
+        InTransaction.type_check("lot", lot)
+        if fiat_in_with_fee is not None:
+            Configuration.type_check_positive_decimal("fiat_in_with_fee", fiat_in_with_fee)
+        Configuration.type_check_bool("taxable_event", taxable_event)
+        # Existing plugins keep their sort-key contract. Cost-ranked methods opt
+        # into effective acquisition basis while retaining the actual lot object.
+        return self.taxable_event_sort_key(lot) if taxable_event else self.sort_key(lot)
 
     def sort_key(self, lot: InTransaction) -> AcquiredLotSortKey:
         raise NotImplementedError("Abstract function")
@@ -455,7 +486,14 @@ class AbstractFeatureBasedAccountingMethod(AbstractAccountingMethod):
 
         if selected_acquired_lot_amount > ZERO and selected_acquired_lot:
             lot_candidates.clear_partial_amount(selected_acquired_lot)
-            self.add_selected_lot_to_heap(lot_candidates.acquired_lot_heap, selected_acquired_lot)
-            self.add_selected_lot_to_taxable_event_heap(lot_candidates.taxable_event_acquired_lot_heap, selected_acquired_lot)
-            return AcquiredLotAndAmount(acquired_lot=selected_acquired_lot, amount=selected_acquired_lot_amount)
+            self.add_selected_lot_to_heap(lot_candidates.acquired_lot_heap, selected_acquired_lot, lot_candidates.get_fiat_in_with_fee(selected_acquired_lot))
+            self.add_selected_lot_to_taxable_event_heap(
+                lot_candidates.taxable_event_acquired_lot_heap, selected_acquired_lot, lot_candidates.get_fiat_in_with_fee(selected_acquired_lot)
+            )
+            basis = lot_candidates.get_fiat_in_with_fee(selected_acquired_lot)
+            return AcquiredLotAndAmount(
+                acquired_lot=selected_acquired_lot,
+                amount=selected_acquired_lot_amount,
+                unit_cost_basis_override=basis / selected_acquired_lot.crypto_in if basis != selected_acquired_lot.fiat_in_with_fee else None,
+            )
         return None

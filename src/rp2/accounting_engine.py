@@ -22,12 +22,13 @@ from rp2.abstract_accounting_method import (
     AbstractAccountingMethod,
     AbstractAcquiredLotCandidates,
     AcquiredLotAndAmount,
+    PoolAcquiredLotCandidates,
 )
 from rp2.abstract_transaction import AbstractTransaction
 from rp2.configuration import Configuration
 from rp2.in_transaction import InTransaction
 from rp2.rp2_decimal import ZERO, RP2Decimal
-from rp2.rp2_error import RP2RuntimeError, RP2TypeError
+from rp2.rp2_error import RP2RuntimeError, RP2TypeError, RP2ValueError
 
 
 class AcquiredLotAndAmounts(NamedTuple):
@@ -119,9 +120,7 @@ class AccountingEngine:
             while True:
                 acquired_lot: InTransaction = next(acquired_lot_iterator)
                 self.__acquired_lot_list.append(acquired_lot)
-                self.__acquired_lot_avl.insert_node(
-                    f"{self._get_avl_node_key(acquired_lot.timestamp, acquired_lot.internal_id)}", _AcquiredLotAndIndex(acquired_lot, index)
-                )
+                self.__acquired_lot_avl.insert_node(f"{self._get_avl_node_key(acquired_lot.timestamp, str(index))}", _AcquiredLotAndIndex(acquired_lot, index))
                 index += 1
         except StopIteration:
             # End of acquired_lots
@@ -130,46 +129,47 @@ class AccountingEngine:
         if not self.__acquired_lot_avl.root:
             raise RP2RuntimeError("Internal error: AVL tree has no root node")
 
-        to_visit = []
-        node = self.__years_2_methods.root
-        while node is not None:
-            # Pass __acquired_lot_2_partial_amount to all lot candidates so that they share the partial amount cache even across different accounting methods.
-            self.__years_2_lot_candidates.insert_node(
-                node.key,
-                node.value.create_lot_candidates(
+        # A redundant schedule boundary must reuse the running pool, not rebuild
+        # its remaining inventory from historical acquisition costs.
+        self.__years_2_lot_candidates = AVLTree()
+        scheduled_methods: Dict[int, AbstractAccountingMethod] = {}
+        to_visit = [self.__years_2_methods.root]
+        while to_visit:
+            node = to_visit.pop()
+            if node is None:
+                continue
+            scheduled_methods[node.key] = node.value
+            to_visit.extend([node.left, node.right])
+        previous_method: Optional[AbstractAccountingMethod] = None
+        previous_candidates: Optional[AbstractAcquiredLotCandidates] = None
+        for year, method in sorted(scheduled_methods.items()):
+            if previous_method is not None and previous_method.name == method.name:
+                candidates = previous_candidates
+            else:
+                if isinstance(previous_candidates, PoolAcquiredLotCandidates):
+                    raise RP2ValueError(
+                        "Changing from a pool-based accounting method to a different method is unsupported: "
+                        "remaining pool basis cannot be reconstructed from acquisition costs."
+                    )
+                candidates = method.create_lot_candidates(
                     self.__acquired_lot_list,
                     self.__acquired_lot_2_partial_amount,
                     acquired_lot_to_fiat_in_with_fee_override,
-                ),
-            )
-            if node.left:
-                to_visit.append(node.left)
-            if node.right:
-                to_visit.append(node.right)
-
-            if len(to_visit) > 0:
-                node = to_visit.pop()
-            else:
-                break
+                )
+            if candidates is None:
+                raise RP2RuntimeError("Internal error: no lot candidates for accounting method")
+            self.__years_2_lot_candidates.insert_node(year, candidates)
+            previous_method = method
+            previous_candidates = candidates
 
     def _disambiguator(self, internal_id: str) -> str:
-        # Sortable, fixed-shape suffix appended to the timestamp in AVL keys. It must impose a total
-        # order over same-timestamp lots that matches their order in the chronologically-stable
-        # acquired-lot list, because find_max_value_less_than uses the max-keyed lot's *list index*
-        # as the candidate-window upper bound.
-        #
-        # Positive ids keep ascending numeric order (zero-padding makes string order == numeric
-        # order). Artificial negative ids — the per-wallet "to"-leg lots (-1, -2, ...) — are placed
-        # in a higher sort class ("1" > "0") so they sort ABOVE every positive id at the same
-        # timestamp, matching the list where they are appended after same-timestamp real lots, and
-        # are ordered -1 < -2 < -3 by magnitude (creation order = list order). The previous scheme
-        # right-justified the raw id, but '-' (0x2D) sorts below '0' (0x30): an artificial lot's key
-        # fell below a same-timestamp real lot's, so find_max_value_less_than picked a too-small
-        # upper bound and the artificial lot was excluded from the candidate window.
+        # The caller uses the acquired-list index, not the transaction row:
+        # same-timestamp transactions retain stable insertion order, which can
+        # differ from row order for library inputs and artificial transfer lots.
         try:
             value: int = int(internal_id)
         except ValueError:
-            # internal_id is always a stringified int in practice; this is a defensive fallback.
+            # The acquired-list index is always a stringified int; retain the defensive fallback.
             return f"0{internal_id:0>{self.KEY_DISAMBIGUATOR_LENGTH}}"
         if value >= 0:
             return f"0{value:0>{self.KEY_DISAMBIGUATOR_LENGTH}}"

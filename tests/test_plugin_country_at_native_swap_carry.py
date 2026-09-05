@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Sequence
 
 from prezzemolo.avl_tree import AVLTree
@@ -229,6 +230,33 @@ class TestNativeATSwapCarry(unittest.TestCase):
         self._assert_decimal_equal(self._gain_loss_list(computed["B2"])[0].fiat_gain, "0")
         self._assert_decimal_equal(self._gain_loss_list(computed["B3"])[0].fiat_cost_basis, "50")
 
+    def test_long_chronological_swap_chain_does_not_exhaust_python_stack(self) -> None:
+        swap_count = 1050
+        in_txs: Dict[str, List[InTransaction]] = {
+            "B1": [self._buy("B1", 1, "2023-01-01 00:00:00 +0000", "1", "100")],
+            "B2": [],
+        }
+        out_txs: Dict[str, List[OutTransaction]] = {"B1": [], "B2": []}
+        start = datetime(2023, 2, 1, tzinfo=timezone.utc)
+        for index in range(swap_count):
+            source = "B1" if index % 2 == 0 else "B2"
+            destination = "B2" if source == "B1" else "B1"
+            timestamp = (start + timedelta(seconds=index)).isoformat()
+            # Reverse lexical IDs make DFS start at the last swap and follow the entire
+            # valid dependency chain, rather than encountering previously visited nodes.
+            notes = f"at_swap_link=long-{swap_count - index:04d}"
+            out_txs[source].append(self._sell(source, index * 2 + 2, timestamp, "1", "200", notes=notes))
+            in_txs[destination].append(self._buy(destination, index * 2 + 3, timestamp, "1", "200", notes=notes))
+
+        computed = self._compute({asset: self._input_data(asset, acquisitions, out_txs[asset]) for asset, acquisitions in in_txs.items()})
+
+        self._assert_decimal_equal(computed["B1"].get_in_transaction_fiat_in_with_fee(in_txs["B1"][-1]), "100")
+        for asset in in_txs:
+            gains = self._gain_loss_list(computed[asset])
+            self.assertEqual(len(gains), swap_count // 2)
+            for gain_loss in gains:
+                self._assert_decimal_equal(gain_loss.fiat_gain, "0")
+
     def test_same_asset_transfer_fee_before_cross_asset_swap_preserves_source_pool_average(self) -> None:
         b1_in = [
             self._buy("B1", 1, "2023-01-01 00:00:00 +0000", "1", "100"),
@@ -354,7 +382,10 @@ class TestNativeATSwapCarry(unittest.TestCase):
         ]
         b2_out = [self._sell("B2", 3, swap_timestamp, "0.5", "1000", notes="at_swap_link=b2-to-b1")]
 
-        with self.assertRaisesRegex(RP2ValueError, "Cyclic Austrian swap basis dependency"):
+        with self.assertRaisesRegex(
+            RP2ValueError,
+            r"Cyclic Austrian swap basis dependency:.*\(at_swap_link=b1-to-b2 -> at_swap_link=b2-to-b1 -> at_swap_link=b1-to-b2\)",
+        ):
             self._compute(
                 {
                     "B1": self._input_data("B1", b1_in, b1_out),
