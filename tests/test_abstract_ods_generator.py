@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import unittest
+from pathlib import Path
 
+from rp2.plugin.country.jp import JP
 from rp2.plugin.report.abstract_ods_generator import AbstractODSGenerator
 
 
@@ -39,6 +41,15 @@ class _Sheet:
 
 # pylint: disable=protected-access
 class TestAbstractODSGenerator(unittest.TestCase):
+    def test_jp_klingon_templates_reuse_jp_english_templates(self) -> None:
+        generator = AbstractODSGenerator()
+        country = JP()
+
+        for template_name in ("open_positions", "rp2_full_report"):
+            template_path = Path(generator._get_template_path(template_name, country, "kl"))
+            self.assertEqual(template_path.name, f"template_{template_name}_en.ods")
+            self.assertEqual(template_path.parent.name, "jp")
+
     def test_fill_cell_treats_raw_formula_like_text_as_literal(self) -> None:
         sheet = _Sheet()
 
