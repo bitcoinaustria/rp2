@@ -225,7 +225,11 @@ class Configuration:  # pylint: disable=too-many-public-methods
                     self.__exchanges = self._validate_string_set(Keyword.EXCHANGES.value, ini_configuration[section_name], configuration_path)
                     self.__holders = self._validate_string_set(Keyword.HOLDERS.value, ini_configuration[section_name], configuration_path)
                     if Keyword.GENERATORS.value in ini_configuration[section_name]:
-                        self.__generators = self._validate_string_set(Keyword.GENERATORS.value, ini_configuration[section_name], configuration_path)
+                        self.__generators = (
+                            self._validate_string_set(Keyword.GENERATORS.value, ini_configuration[section_name], configuration_path)
+                            if ini_configuration[section_name][Keyword.GENERATORS.value].strip()
+                            else set()
+                        )
                 elif normalized_section_name == Keyword.IN_HEADER.value:
                     if self.__in_header:
                         raise RP2ValueError(f"{configuration_path}: section '{normalized_section_name}' found multiple times in configuration file")
